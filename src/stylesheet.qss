@@ -1,0 +1,254 @@
+/* Gruvbox Dark Theme Stylesheet for LogView */
+/* Based on dark, medium contrast palette */
+
+/* Gruvbox Palette */
+/* bg: #282828 */
+/* bg1: #3c3836 */
+/* bg2: #504945 */
+/* bg3: #665c54 */
+/* bg4: #7c6f64 */
+/* fg: #ebdbb2 */
+/* fg1: #d5c4a1 */
+/* red: #cc241d / #fb4934 */
+/* green: #98971a / #b8bb26 */
+/* yellow: #d79921 / #fabd2f */
+/* blue: #458588 / #83a598 */
+/* purple: #b16286 / #d3869b */
+/* aqua: #689d6a / #8ec07c */
+/* gray: #a89984 */
+/* orange: #d65d0e / #fe8019 */
+
+QWidget {
+    background-color: #282828; /* bg */
+    color: #ebdbb2; /* fg */
+    border: none;
+    font-family: "Segoe UI", Arial, sans-serif;
+    font-size: 10pt;
+}
+
+QMainWindow {
+    background-color: #3c3836; /* bg1 */
+}
+
+QMenuBar {
+    background-color: #3c3836; /* bg1 */
+    color: #ebdbb2; /* fg */
+}
+
+QMenuBar::item:selected {
+    background-color: #504945; /* bg2 */
+    color: #fabd2f; /* yellow */
+}
+
+QMenu {
+    background-color: #3c3836; /* bg1 */
+    color: #ebdbb2; /* fg */
+    border: 1px solid #504945; /* bg2 */
+}
+
+QMenu::item:selected {
+    background-color: #504945; /* bg2 */
+    color: #fabd2f; /* yellow */
+}
+
+QTabWidget::pane {
+    border: 1px solid #504945; /* bg2 */
+    background-color: #282828; /* bg */
+}
+
+QTabBar::tab {
+    background-color: #3c3836; /* bg1 */
+    color: #a89984; /* gray */
+    padding: 8px;
+    border: 1px solid #504945; /* bg2 */
+    border-bottom: none;
+    border-top-left-radius: 4px;
+    border-top-right-radius: 4px;
+}
+
+QTabBar::tab:selected {
+    background-color: #282828; /* bg */
+    color: #fabd2f; /* yellow */
+    border: 1px solid #504945; /* bg2 */
+    border-bottom: 1px solid #282828; /* Match pane background */
+}
+
+QTabBar::tab:!selected {
+     margin-top: 2px; /* make non-selected tabs look smaller */
+}
+
+QTabBar::tab:!selected:hover {
+    background-color: #504945; /* bg2 */
+    color: #d5c4a1; /* fg1 */
+}
+
+QTabBar::close-button {
+    /* Consider adding a small icon */
+    subcontrol-position: right;
+    padding-left: 3px;
+}
+QTabBar::close-button:hover {
+     background-color: #fb4934; /* red */
+}
+
+
+QTableView, QListView, QTreeView {
+    background-color: #282828; /* bg */
+    color: #d5c4a1; /* fg1 */
+    border: 1px solid #504945; /* bg2 */
+    gridline-color: #3c3836; /* bg1 */
+    font-family: "Consolas", "Courier New", monospace;
+    font-size: 9pt;
+    alternate-background-color: #3c3836; /* bg1 for alternating rows */
+    /* selection-background-color: #665c54; */ /* bg3 - overridden below */
+    /* selection-color: #fabd2f; */ /* yellow - overridden below */
+}
+
+QTableView {
+    /* Enable alternating row colors */
+    alternate-background-color: #32302f; /* Slightly darker bg */
+    selection-background-color: #665c54; /* bg3 */
+    selection-color: #fabd2f; /* yellow */
+}
+
+QTableView::item, QListView::item, QTreeView::item {
+    padding: 3px;
+    border-color: transparent; /* Remove internal item borders */
+}
+
+/* Custom selection highlight (overrides default selection-background-color) */
+QTableView::item:selected, QListView::item:selected, QTreeView::item:selected {
+    background-color: #665c54; /* bg3 */
+    color: #fabd2f; /* yellow */
+}
+QTableView::item:selected:active, QListView::item:selected:active, QTreeView::item:selected:active {
+     background-color: #7c6f64; /* bg4 */
+     color: #fe8019; /* orange */
+}
+
+
+QHeaderView::section {
+    background-color: #3c3836; /* bg1 */
+    color: #fabd2f; /* yellow */
+    padding: 4px;
+    border: 1px solid #504945; /* bg2 */
+    font-weight: bold;
+}
+
+QSplitter::handle {
+    background-color: #3c3836; /* bg1 */
+    border: 1px solid #504945; /* bg2 */
+}
+QSplitter::handle:horizontal { width: 3px; }
+QSplitter::handle:vertical { height: 3px; }
+QSplitter::handle:hover { background-color: #504945; } /* bg2 */
+
+QScrollBar:vertical {
+    border: 1px solid #504945; /* bg2 */
+    background: #282828; /* bg */
+    width: 12px;
+    margin: 12px 0 12px 0;
+}
+QScrollBar::handle:vertical {
+    background: #665c54; /* bg3 */
+    min-height: 20px;
+    border-radius: 6px;
+}
+QScrollBar::handle:vertical:hover {
+    background: #7c6f64; /* bg4 */
+}
+QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
+    border: none; background: none; height: 12px;
+    subcontrol-position: top; subcontrol-origin: margin;
+}
+QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical { background: none; }
+
+QScrollBar:horizontal {
+    border: 1px solid #504945; /* bg2 */
+    background: #282828; /* bg */
+    height: 12px;
+    margin: 0 12px 0 12px;
+}
+QScrollBar::handle:horizontal {
+    background: #665c54; /* bg3 */
+    min-width: 20px;
+    border-radius: 6px;
+}
+QScrollBar::handle:horizontal:hover {
+    background: #7c6f64; /* bg4 */
+}
+QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {
+    border: none; background: none; width: 12px;
+    subcontrol-position: right; subcontrol-origin: margin;
+}
+QScrollBar::add-page:horizontal, QScrollBar::sub-page:horizontal { background: none; }
+
+QStatusBar {
+    background-color: #3c3836; /* bg1 */
+    color: #a89984; /* gray */
+}
+
+QProgressDialog {
+    background-color: #3c3836; /* bg1 */
+    color: #ebdbb2; /* fg */
+}
+QProgressDialog QLabel { /* Style label inside progress dialog */
+     background-color: transparent;
+     color: #ebdbb2; /* fg */
+}
+QProgressBar {
+    border: 1px solid #504945; /* bg2 */
+    background-color: #282828; /* bg */
+    text-align: center;
+    color: #ebdbb2; /* fg */
+    border-radius: 3px;
+}
+QProgressBar::chunk {
+    background-color: #8ec07c; /* aqua */
+    width: 1px; /* Smooth progress */
+}
+
+
+QPushButton {
+    background-color: #504945; /* bg2 */
+    color: #ebdbb2; /* fg */
+    border: 1px solid #665c54; /* bg3 */
+    padding: 5px 10px;
+    border-radius: 3px;
+    min-width: 60px; /* Ensure minimum button size */
+}
+QPushButton:hover {
+    background-color: #665c54; /* bg3 */
+    border-color: #7c6f64; /* bg4 */
+}
+QPushButton:pressed {
+    background-color: #3c3836; /* bg1 */
+}
+QPushButton:disabled {
+    color: #665c54; /* bg3 */
+    background-color: #282828; /* bg */
+}
+
+
+QDialog {
+     background-color: #3c3836; /* bg1 */
+}
+
+QLineEdit, QTextEdit {
+     background-color: #282828; /* bg */
+     color: #ebdbb2; /* fg */
+     border: 1px solid #504945; /* bg2 */
+     padding: 3px;
+     border-radius: 2px;
+}
+QLineEdit:focus, QTextEdit:focus {
+    border: 1px solid #fabd2f; /* yellow */
+}
+
+QLabel {
+     background-color: transparent;
+     color: #d5c4a1; /* fg1 */
+}
+
+/* Specific Labels (if needed) */
+/* QLabel#MySpecialLabel { color: #fe8019; } */

@@ -2,6 +2,7 @@
 #include "ui_MainWindow.h"
 
 #include <memory>
+#include <string> // Add missing include for std::string
 
 // TODO: cleanup this includes after some mockups creation and proper class segregation
 #include <QAction>
@@ -31,6 +32,16 @@
 #include "serializer/SerializerProjectModel.hpp"
 #include "Version.hpp"
 #include "ProjectUiManager.hpp"
+#include "LogfileModel.hpp" // Include for Column enum
+#include "GrepDialogWindow.hpp" // Added back
+#include <QTableView> // Added for model() access
+#include <QTreeView> // Needed for grep tree access
+#include <QStandardItemModel> // Needed for grep tree model access
+#include <QItemSelectionModel> // Needed for grep tree selection access
+#include "GrepModel.hpp" // Added include
+
+// Define the role used in FileViewer again (or move to a shared header)
+const int GrepNodeRole = Qt::UserRole + 1;
 
 void MainWindow::closeFileTab(const int index)
 {
@@ -112,43 +123,126 @@ void MainWindow::grepCurrentView()
     FileViewer* viewerWidget = get_active_viewer_widget();
     if (!viewerWidget) return; // can display here some message
 
-    LogViewer* deepest_tab = viewerWidget->getDeepestActiveTab();
+    // Get the LogViewer from the FileViewer
+    LogViewer* logViewer = viewerWidget->getLogViewer();
+    if (!logViewer) {
+        QMessageBox::warning(this, "Grep Error", "Could not find the log viewer component.");
+        return;
+    }
 
     GrepDialogWindow grepDialog;
-
     if (grepDialog.exec() != QDialog::Accepted) return;
-    auto result = grepDialog.getResult();
-    if (deepest_tab)
-    {
-        GrepNode* new_grep_node = new GrepNode(result.pattern.toStdString(),
-                                               result.is_regex,
-                                               result.is_case_insensitive,
-                                               result.is_inverted);
 
-        deepest_tab->grep(new_grep_node);
-        deepest_tab->getGrepNode()->addChild(new_grep_node);
+    auto result = grepDialog.getResult();
+
+    // --- Get the currently selected GrepNode from the FileViewer's tree ---
+    GrepNode* parentNode = viewerWidget->getSelectedGrepNode();
+    if (!parentNode) {
+         QMessageBox::warning(this, "Grep Error", "Could not determine parent grep node.");
+         return;
     }
+
+    // --- Create the new GrepNode data structure ---
+    GrepNode* newNode = new GrepNode(result.pattern.toStdString(),
+                                     result.is_regex,
+                                     result.is_case_insensitive,
+                                     result.is_inverted);
+    // Add the new node via the GrepModel (which handles data and view updates)
+    // Need access to the GrepModel from FileViewer (make public/add getter)
+    // Hacky alternative:
+    QTreeView* grepTreeView = viewerWidget->findChild<QTreeView*>();
+    GrepModel* grepModel = qobject_cast<GrepModel*>(grepTreeView ? grepTreeView->model() : nullptr);
+    if (grepModel) {
+        grepModel->addGrepNode(parentNode, newNode);
+    } else {
+         QMessageBox::warning(this, "Grep Error", "Could not access grep model to add node.");
+         // Clean up the created node if we can't add it?
+         delete newNode; // Or handle ownership differently
+    }
+    // viewerWidget->addGrepNodeToTree(parentNode, newNode); // Removed - Model handles UI update
 }
+
+#include <QItemSelectionModel> // Needed for selection model
+#include <QTableView>        // Needed for casting view_
+#include "LogFilterProxyModel.hpp" // Needed for proxy model access (though maybe via LogViewer?)
+
+// Forward declare QTableView if not included via LogViewer.hpp indirectly
+// class QTableView;
 
 void MainWindow::bookmark_current_line()
 {
     FileViewer* viewerWidget = get_active_viewer_widget();
-    if (!viewerWidget) return; // can display here some message
-    LogViewer* deepest_tab = viewerWidget->getDeepestActiveTab();
+    if (!viewerWidget) return;
 
-    if (!deepest_tab) return;
-    int current_line_index = deepest_tab->text_ ->textCursor().blockNumber();
-    uint32_t absolute_line_index = deepest_tab->lines_[current_line_index].number;
+    LogViewer* logViewer = viewerWidget->getLogViewer();
+    if (!logViewer || !viewerWidget->logfile_) {
+         QMessageBox::warning(this, "Bookmark Error", "Could not find viewer components.");
+         return;
+    }
+
+    // Access the internal QTableView (Need to make view_ accessible or add getter in LogViewer)
+    // For now, let's assume we add a getter `getTableView()` to LogViewer
+    // QTableView* tableView = logViewer->getTableView(); // Assumed getter
+    // Hacky alternative for now (breaks encapsulation):
+    QTableView* tableView = logViewer->findChild<QTableView*>(); // Find the view_ child
+    if (!tableView) {
+        QMessageBox::warning(this, "Bookmark Error", "Could not find table view.");
+        return;
+    }
+
+    QItemSelectionModel* selectionModel = tableView->selectionModel();
+    if (!selectionModel || !selectionModel->hasSelection()) {
+        QMessageBox::information(this, "Bookmark", "Please select a line to bookmark.");
+        return;
+    }
+
+    // Get the first selected index in the view
+    QModelIndex viewIndex = selectionModel->selectedIndexes().first();
+
+    // Map the view index to the proxy model index (if filtering is active)
+    // QSortFilterProxyModel* proxyModel = qobject_cast<QSortFilterProxyModel*>(tableView->model()); // Get proxy model
+    // QModelIndex proxyIndex = proxyModel ? proxyModel->mapToSource(viewIndex) : viewIndex; // Map if proxy exists
+
+    // Map the view index directly to the source model index
+    QSortFilterProxyModel* proxyModel = qobject_cast<QSortFilterProxyModel*>(tableView->model());
+    if (!proxyModel) {
+         QMessageBox::warning(this, "Bookmark Error", "Could not access filter model.");
+         return;
+    }
+    QModelIndex sourceIndex = proxyModel->mapToSource(viewIndex);
+
+    if (!sourceIndex.isValid()) {
+         QMessageBox::warning(this, "Bookmark Error", "Could not map selected line to source.");
+         return;
+    }
+
+    // Get the original line number (1-based) from the source model data (column 0)
+    qint64 absolute_line_index = sourceIndex.model()->data(sourceIndex.model()->index(sourceIndex.row(), LogfileModel::Column::LineNumberColumn)).toLongLong();
+
+    if (absolute_line_index < 1) {
+         QMessageBox::warning(this, "Bookmark Error", "Invalid line number obtained.");
+         return;
+    }
+
+    // Get the line text from the Logfile for the dialog default
+    QString current_line_text = viewerWidget->logfile_->getLine(absolute_line_index).text;
 
     // Simple QInputDialog will be extended later for something more fancy
     bool ok = false;
     QString bookmark_name = QInputDialog::getText(this, tr("Bookmark creation"),
-        tr("Name:"), QLineEdit::Normal, deepest_tab->lines_[current_line_index].text, &ok);
+        tr("Name:"), QLineEdit::Normal, current_line_text, &ok); // Use fetched text
 
-    if (!ok) return;
-    viewerWidget->logfile_->getBookmarksModel()->add_bookmark(absolute_line_index,
+    if (!ok || bookmark_name.isEmpty()) return; // Also check if name is empty
+
+    // Add the bookmark using the absolute line number
+    viewerWidget->logfile_->getBookmarksModel()->add_bookmark(static_cast<uint32_t>(absolute_line_index),
         QString(":/icon/Gnome-Bookmark-New-32.png"),
         bookmark_name);
+
+    // Note: Navigation to bookmarks still needs implementation.
+
+    // Remove the old placeholder message:
+    // QMessageBox::information(this, "Bookmark", "Bookmark functionality is temporarily disabled due to refactoring for large file support.\nNavigation requires reimplementation with the new view.");
 }
 
 void MainWindow::on_actionLoad_from_file_triggered()

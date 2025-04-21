@@ -15,8 +15,8 @@ void Project::load(Ui::MainWindow *ui, ::ProjectModel* pm, std::function<void(::
 {
     for (const auto& logfile : pm->get_log_files())
     {
-        ::Logfile* raw_logfile = logfile.get();
-        Logfile::load(ui, raw_logfile, connect_slots_to_manager);
-    }
+            ::Logfile* raw_logfile = logfile.get();
+            Logfile::load(ui->fileView, raw_logfile, connect_slots_to_manager);
+        }
 }
 }  // namespace loader

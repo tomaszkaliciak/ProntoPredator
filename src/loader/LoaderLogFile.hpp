@@ -6,20 +6,25 @@
 
 class FileViewer;
 class LogViewer;
-class Logfile;
+class Logfile; // Keep ::Logfile forward declaration
 class GrepNode;
-namespace Ui { class MainWindow; }
+class QTabWidget; // Forward declare QTabWidget
+
+// Remove Ui::MainWindow forward declaration
+// namespace Ui { class MainWindow; }
 
 namespace loader
 {
 
-class Logfile
+class Logfile // This class name might be confusing, it's a loader, not the data model
 {
 public:
     Logfile() = delete;
-    static void load(Ui::MainWindow *ui, ::Logfile* pm, std::function<void(FileViewer*)> connect_slots_method);
+    // Change signature to accept QTabWidget* instead of Ui::MainWindow*
+    static void load(QTabWidget *target_tab_widget, ::Logfile* logfile_data, std::function<void(FileViewer*)> connect_slots_method);
 
 protected:
+    // spawnViews remains protected static
     static void spawnViews(LogViewer* parent_tab, const GrepNode* node);
 };
 

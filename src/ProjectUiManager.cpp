@@ -1,8 +1,23 @@
 #include "ProjectUiManager.hpp"
 
 #include "FileViewer.hpp"
+#include "Logfile.hpp" // Needed for Logfile type
+#include "loader/LoaderLogFile.hpp" // Needed for loader::Logfile
+#include "serializer/SerializerProjectModel.hpp" // Needed for serializer::ProjectModel
+#include "ProjectModel.hpp" // Needed for ProjectModel
+#include "ui_MainWindow.h" // Needed for Ui::MainWindow
 
+// Add missing Qt Includes
 #include <QDebug>
+#include <QString>
+#include <QFileDialog>
+#include <QFile>
+#include <QIODevice>
+#include <QJsonObject>
+#include <QJsonDocument>
+#include <QObject> // Needed for QObject base class and tr() context (implicitly)
+#include <QTabWidget> // Needed for ui_->fileView type
+
 
 ProjectUiManager::ProjectUiManager(Ui::MainWindow* ui)
 : ui_(ui)
@@ -19,9 +34,15 @@ void ProjectUiManager::create_new()
 
 void ProjectUiManager::load_log_file(QString file_path)
 {
+    // Ensure ui_ and ui_->fileView are valid before proceeding
+    if (!ui_ || !ui_->fileView) {
+        qWarning("ProjectUiManager::load_log_file: UI or fileView is not initialized.");
+        return;
+    }
     Logfile* lf = pm_->add_to_project(std::make_unique<Logfile>(file_path));
+    // Pass the QTabWidget* directly
     loader::Logfile::load(
-        ui_,
+        ui_->fileView, // Pass the QTabWidget*
         lf,
         [&](FileViewer* fileviewer)
         {

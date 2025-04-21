@@ -31,13 +31,21 @@ public:
 
     bool isInverted() const;
 
+    // Setters
+    void setPattern(const std::string& pattern);
+    void setIsRegEx(bool isRegEx);
+    void setIsCaseInsensitive(bool isCaseInsensitive);
+    void setIsInverted(bool isInverted);
+
     void addChild(GrepNode* node);
 
     void removeChild(GrepNode* node);
 
     std::vector<GrepNode*> getChildren() const;
+    GrepNode* getParent() const; // Added getter for parent
 
 protected:
+    GrepNode* parent_ = nullptr; // Added parent pointer
     std::vector<GrepNode*> children_{};
     std::string pattern_{};
     bool is_regex_{};
@@ -46,10 +54,10 @@ protected:
 
     friend class serializer::GrepNode;
 
-private slots:
-    void child_changed();
+// Removed private slots section as child_changed is no longer used
 
 signals:
+    // Signal emitted when this node's data changes (or children change)
     void changed();
 };
 

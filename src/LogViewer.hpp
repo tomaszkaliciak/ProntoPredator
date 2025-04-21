@@ -1,35 +1,45 @@
 #ifndef LOG_VIEWER_HPP
 #define LOG_VIEWER_HPP
 
-#include <QStringList>
 #include <QWidget>
+#include <QtCore/Qt> // For Qt::CaseSensitivity
 
-#include "Logfile.hpp"
-
-class QWidget;
-class QTabWidget;
-class TextRenderer;
+// Forward declarations
+class Logfile;
 class GrepNode;
+class QTableView;
+class LogfileModel;
+class QAbstractItemModel;
+class LogFilterProxyModel;
+class QLabel; // For status overlay
+class QProgressDialog; // Added for progress dialog
 
 class LogViewer : public QWidget
 {
-Q_OBJECT
+    Q_OBJECT
 public:
-    LogViewer(QWidget* parent, GrepNode* current_grep_node_, const Lines lines);
-    LogViewer* grep(GrepNode* grep);
+    LogViewer(QWidget* parent, Logfile* logfile);
 
-    GrepNode* getGrepNode();
+    // Method to apply filtering criteria using a chain of nodes
+    void applyFilterChain(const QList<GrepNode*>& chain);
 
-    QTabWidget* tabs_;
-    TextRenderer* text_;
-// in further improvements I need to hold only grepped lines from log model not copy of lines itself;
-    const Lines lines_;
+    // Accessors
+    Logfile* getLogfile();
+    LogfileModel* getBaseSourceModel() const;
+    QTableView* getTableView() const;
 
-public slots:
-    void closeTab(const int);
+private slots:
+    // Slots to handle filtering state changes from the proxy model
+    void onFilteringStarted();
+    void onFilteringFinished(int matchCount);
 
 protected:
-    GrepNode* grep_node_;
+    Logfile* logfile_;
+    QTableView* view_;
+    LogfileModel* baseSourceModel_;
+    LogFilterProxyModel* proxyModel_;
+    QLabel* statusOverlay_; // Simple label to show "Filtering..."
+    QProgressDialog* filterProgressDialog_ = nullptr; // Added progress dialog pointer
 };
 
 #endif // LOG_VIEWER_HPP
