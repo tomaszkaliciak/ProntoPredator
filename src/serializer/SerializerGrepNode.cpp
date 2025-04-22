@@ -22,7 +22,7 @@ void GrepNode::serialize(const ::GrepNode &gp, QJsonObject &json)
         GrepNode::serialize(*child, json_child);
         array.append(json_child);
     }
-   json["childern"] = array;
+   json["children"] = array; // Fixed typo
 }
 
 void GrepNode::deserialize(::GrepNode &gp, const QJsonObject &json)
@@ -32,14 +32,14 @@ void GrepNode::deserialize(::GrepNode &gp, const QJsonObject &json)
     gp.is_case_insensitive_= json["is_case_insensitive"].toBool();
     gp.is_inverted_= json["is_inverted"].toBool();
 
-    QJsonArray children = json["childern"].toArray();
+    QJsonArray children = json["children"].toArray(); // Fixed typo
     for (const QJsonValue child : children)
     {
         ::GrepNode *c = new ::GrepNode;
         serializer::GrepNode::deserialize(*c, child.toObject());
+        c->parent_ = &gp; // Set parent pointer
         gp.children_.push_back(c);
     }
 }
 
 }  // namespace serializer
-

@@ -10,18 +10,10 @@
 #include <QBitArray>
 #include <QList>
 #include <QThread> // Added for cancellation check
+#include <QTimer>  // Added for delayed invalidateFilter
 #include <numeric> // For std::popcount (requires C++20) or use alternative
 
-// --- Equality Operator for FilterParams ---
-bool operator==(const FilterParams& lhs, const FilterParams& rhs) {
-    return lhs.pattern == rhs.pattern &&
-           lhs.isRegex == rhs.isRegex &&
-           lhs.cs == rhs.cs &&
-           lhs.inverted == rhs.inverted &&
-           // Explicitly compare relevant QRegularExpression properties if needed
-           (!lhs.isRegex || (lhs.regex.pattern() == rhs.regex.pattern() && lhs.regex.patternOptions() == rhs.regex.patternOptions()));
-}
-// ---
+// FilterParams and its operator== are now defined in FilterParams.hpp
 
 LogFilterProxyModel::LogFilterProxyModel(QObject* parent)
     : QSortFilterProxyModel(parent)
@@ -164,11 +156,15 @@ void LogFilterProxyModel::handleFilterFinished()
      }
 
     isFiltering_ = false;
-    qDebug() << "LogFilterProxyModel::handleFilterFinished - Before invalidateFilter()";
-    invalidateFilter(); // Update the view with new (or old if cancelled) results
-    qDebug() << "LogFilterProxyModel::handleFilterFinished - After invalidateFilter()";
-    emit filteringFinished(matchCount);
-    qDebug() << "LogFilterProxyModel::handleFilterFinished - After emitting filteringFinished()";
+    emit filteringFinished(matchCount); // Emit signal first to update UI (e.g., close dialog)
+
+    // Delay the potentially blocking invalidateFilter call slightly
+    // Note: This helps ensure the filteringFinished signal is processed, but the
+    // invalidateFilter call itself can still block the main thread for a noticeable
+    // time if the number of rows changing visibility is very large.
+    QTimer::singleShot(0, this, [this]() {
+        invalidateFilter(); // Update the view with new (or old if cancelled) results
+    });
 }
 
 

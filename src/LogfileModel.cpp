@@ -105,6 +105,26 @@ QVariant LogfileModel::data(const QModelIndex &index, int role) const
     return QVariant();
 }
 
+// --- Add flags() method ---
+Qt::ItemFlags LogfileModel::flags(const QModelIndex &index) const
+{
+    if (!index.isValid())
+        return Qt::NoItemFlags;
+
+    // Construct flags directly based on column
+    if (index.column() == Column::MessageColumn) {
+        // Enable selection and editing (for delegate activation) for message column
+        return Qt::ItemIsEnabled | Qt::ItemIsSelectable | Qt::ItemIsEditable;
+    } else if (index.column() == Column::LineNumberColumn) {
+        // Line number column should just be enabled (not selectable or editable)
+        return Qt::ItemIsEnabled;
+    } else {
+        // Default for any other potential columns (though we only have 2)
+        return Qt::ItemIsEnabled;
+    }
+}
+
+
 // Optional: Implement handleDataChange if Logfile can be modified externally
 // void LogfileModel::handleDataChange() {
 //     beginResetModel(); // Or more specific signals like dataChanged, rowsInserted, etc.

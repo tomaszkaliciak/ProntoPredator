@@ -23,9 +23,11 @@ set(SOURCES
     src/GrepDialogWindow.cpp
     src/GrepNode.cpp
     src/LogViewer.cpp
+    src/CustomLogView.cpp # Added custom view source
     src/LogfileModel.cpp
     src/LogFilterProxyModel.cpp
     src/GrepModel.cpp # Added
+    src/TextSelectionDelegate.cpp # Added delegate source
     src/MainWindow.cpp
     src/Logfile.cpp
     src/ProjectUiManager.cpp
@@ -39,6 +41,7 @@ set(SOURCES
     src/serializer/SerializerGrepNode.cpp
     src/serializer/SerializerLogfile.cpp
     src/serializer/SerializerProjectModel.cpp
+    src/EfficientLogFilterProxyModel.cpp # Added new efficient proxy model
 )
 
 set(FORMS

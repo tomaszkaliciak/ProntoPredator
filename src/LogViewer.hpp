@@ -7,10 +7,10 @@
 // Forward declarations
 class Logfile;
 class GrepNode;
-class QTableView;
+class CustomLogView; // Changed from QTableView
 class LogfileModel;
 class QAbstractItemModel;
-class LogFilterProxyModel;
+class EfficientLogFilterProxyModel; // Changed from LogFilterProxyModel
 class QLabel; // For status overlay
 class QProgressDialog; // Added for progress dialog
 
@@ -26,18 +26,20 @@ public:
     // Accessors
     Logfile* getLogfile();
     LogfileModel* getBaseSourceModel() const;
-    QTableView* getTableView() const;
+    CustomLogView* getCustomView() const; // Changed accessor name and type
 
 private slots:
     // Slots to handle filtering state changes from the proxy model
     void onFilteringStarted();
     void onFilteringFinished(int matchCount);
+    // Slot for copying selected text
+    void copySelectionToClipboard();
 
 protected:
     Logfile* logfile_;
-    QTableView* view_;
+    CustomLogView* view_; // Changed type from QTableView
     LogfileModel* baseSourceModel_;
-    LogFilterProxyModel* proxyModel_;
+    EfficientLogFilterProxyModel* proxyModel_; // Changed type
     QLabel* statusOverlay_; // Simple label to show "Filtering..."
     QProgressDialog* filterProgressDialog_ = nullptr; // Added progress dialog pointer
 };

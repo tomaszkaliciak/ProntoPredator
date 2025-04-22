@@ -21,9 +21,10 @@
 #include "GrepNode.hpp"
 #include "BookmarksModel.hpp"
 #include "Logfile.hpp"
-#include "LogFilterProxyModel.hpp"
+#include "LogFilterProxyModel.hpp" // Keep for casting check? Maybe remove later.
 #include "GrepModel.hpp" // Added include
-#include <QTableView>
+#include "CustomLogView.hpp" // Added include for custom view
+#include <QSortFilterProxyModel> // Needed for casting check
 
 // Removed GrepNodeRole definition as internalPointer is used by GrepModel
 
@@ -126,12 +127,13 @@ void FileViewer::bookmarksItemDoubleClicked(const QModelIndex& idx)
     Bookmark bookmark = logfile_->getBookmarksModel()->get_bookmark(static_cast<uint32_t>(idx.row()));
     qint64 target_line_number = bookmark.line_number_;
 
-    QTableView* tableView = logViewer_->getTableView();
-    QAbstractItemModel* currentViewModel = tableView ? tableView->model() : nullptr;
+    CustomLogView* customView = logViewer_->getCustomView(); // Get the custom view
+    QAbstractItemModel* currentViewModel = customView ? customView->model() : nullptr;
+    // Cast to the specific proxy model type if needed, or keep generic QSortFilterProxyModel
     QSortFilterProxyModel* proxyModel = qobject_cast<QSortFilterProxyModel*>(currentViewModel);
     QAbstractItemModel* sourceModel = proxyModel ? proxyModel->sourceModel() : currentViewModel;
 
-    if (!tableView || !sourceModel) {
+    if (!customView || !sourceModel) { // Check customView instead of tableView
         qWarning("Bookmark navigation failed: Could not find view/models.");
         return;
     }
@@ -147,9 +149,12 @@ void FileViewer::bookmarksItemDoubleClicked(const QModelIndex& idx)
     QModelIndex viewIndex = proxyModel ? proxyModel->mapFromSource(sourceIndex) : sourceIndex;
 
     if (viewIndex.isValid()) {
-        tableView->scrollTo(viewIndex, QAbstractItemView::PositionAtCenter);
-        tableView->selectionModel()->clearSelection();
-        tableView->selectionModel()->select(viewIndex, QItemSelectionModel::Select | QItemSelectionModel::Rows);
+        // Use the custom view's method to scroll
+        customView->ensureIndexVisible(viewIndex);
+        // Selection is handled internally by CustomLogView's paint/mouse events,
+        // so we don't need to manually select rows here.
+        // customView->selectionModel()->clearSelection(); // No selection model exposed
+        // customView->selectionModel()->select(viewIndex, QItemSelectionModel::Select | QItemSelectionModel::Rows); // No selection model exposed
     } else {
         QMessageBox::information(this, "Bookmark Navigation",
             QString("The bookmarked line (%1) is currently filtered out.").arg(target_line_number));

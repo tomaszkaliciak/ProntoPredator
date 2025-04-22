@@ -18,6 +18,9 @@ Logfile::Logfile(const QString& filename, QObject* parent)
       filename_(filename),
       file_(filename) // Initialize QFile member
 {
+    // Set cache size (e.g., max 10000 lines)
+    line_cache_.setMaxCost(10000);
+
     // Initialization logic moved to initialize()
     if (!initialize())
     {
@@ -173,6 +176,13 @@ Line Logfile::getLine(qint64 line_number) const
         return {line_number, QString()};
     }
 
+    // Check cache first
+    if (QString* cachedLine = line_cache_.object(line_number)) {
+        // Cache hit!
+        return {line_number, *cachedLine};
+    }
+
+    // Cache miss, proceed to read from file
     qint64 start_pos = line_index_[line_number - 1];
 
     // Create a mutable copy of the file handle for seeking,
@@ -190,8 +200,13 @@ Line Logfile::getLine(qint64 line_number) const
     QByteArray line_data = const_cast<QFile&>(file_).readLine();
 
     // Convert to QString, trim whitespace (as original code did)
-    // Consider codec handling here if necessary (e.g., QTextCodec)
-    return {line_number, QString::fromUtf8(line_data).trimmed()};
+    QString line_text = QString::fromUtf8(line_data).trimmed();
+
+    // Add to cache before returning (cost is 1 per line)
+    // Create a copy for the cache
+    line_cache_.insert(line_number, new QString(line_text), 1);
+
+    return {line_number, line_text};
 }
 
 

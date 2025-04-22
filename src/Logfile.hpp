@@ -8,6 +8,7 @@
 #include <QFile>
 #include <QVector>
 #include <QObject>
+#include <QCache> // Added for line caching
 
 #include "BookmarksModel.hpp"
 #include "GrepNode.hpp"
@@ -51,6 +52,7 @@ private:
     QString filename_;
     QFile file_; // Keep the file open
     QVector<qint64> line_index_; // Stores start position of each line
+    mutable QCache<qint64, QString> line_cache_; // Added cache (line number -> line text)
 
     bool initialize(); // Private helper for constructor logic
     // void buildIndex(); // Original declaration removed

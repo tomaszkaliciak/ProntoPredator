@@ -24,6 +24,7 @@ public:
     int columnCount(const QModelIndex &parent = QModelIndex()) const override; // Added
     QVariant data(const QModelIndex &index, int role = Qt::DisplayRole) const override; // Modified logic needed in .cpp
     QVariant headerData(int section, Qt::Orientation orientation, int role = Qt::DisplayRole) const override; // Added
+    Qt::ItemFlags flags(const QModelIndex &index) const override; // Added declaration
 
     // Enum for columns
     enum Column {

@@ -7,20 +7,13 @@
 #include <QFutureWatcher>
 #include <QtConcurrent/QtConcurrent>
 #include <QList> // For filter chain
+#include "FilterParams.hpp" // Added include
 
 class LogfileModel;
 class Logfile;
 class GrepNode; // Forward declaration
 
-// Structure to hold filter parameters for thread safety
-struct FilterParams {
-    QString pattern;
-    bool isRegex = false;
-    Qt::CaseSensitivity cs = Qt::CaseSensitive;
-    bool inverted = false;
-    QRegularExpression regex; // Pre-compiled regex if applicable
-};
-
+// FilterParams struct is now defined in FilterParams.hpp
 
 class LogFilterProxyModel : public QSortFilterProxyModel
 {
