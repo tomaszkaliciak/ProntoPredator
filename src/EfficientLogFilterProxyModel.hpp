@@ -28,20 +28,22 @@ public:
     // Constructor takes necessary data (pointers or copies)
     FilterChunkTask(
         int taskId, // For debugging/identification
-        const QVector<int>* rowsToProcessChunk, // Pointer to the chunk of source indices
+        const QVector<int>& rowsToProcessChunk, // Pass chunk by const reference
         const QString* filename,
-        const QVector<qint64>* lineIndex,
-        const FilterParams* filterParams,
+        const QVector<qint64>& lineIndex, // Pass line index by const reference
+        const QList<FilterParams>* filterChainParams, // Changed from single FilterParams*
         QBitArray* outputBitArray, // Pointer to the shared output array
-        QMutex* outputMutex // Mutex to protect access to outputBitArray
+        QMutex* outputMutex, // Mutex to protect access to outputBitArray
+        std::atomic<int>* tasksRemaining // Pointer to the atomic counter
     ) : QRunnable(),
         taskId_(taskId),
-        rowsToProcessChunk_(rowsToProcessChunk),
+        rowsToProcessChunk_(rowsToProcessChunk), // Copy the vector
         filename_(filename),
-        lineIndex_(lineIndex),
-        filterParams_(filterParams),
+        lineIndex_(lineIndex), // Copy the vector
+        filterChainParams_(filterChainParams), // Store the list
         outputBitArray_(outputBitArray),
-        outputMutex_(outputMutex)
+        outputMutex_(outputMutex), // Add missing comma here
+        tasksRemaining_(tasksRemaining) // Store the counter pointer
     {
         setAutoDelete(true); // Auto-delete after run() finishes
     }
@@ -50,12 +52,13 @@ public:
 
 private:
     int taskId_;
-    const QVector<int>* rowsToProcessChunk_;
+    QVector<int> rowsToProcessChunk_; // Store chunk by value (copy)
     const QString* filename_;
-    const QVector<qint64>* lineIndex_;
-    const FilterParams* filterParams_;
+    QVector<qint64> lineIndex_; // Store line index by value (copy)
+    const QList<FilterParams>* filterChainParams_; // Changed type
     QBitArray* outputBitArray_;
     QMutex* outputMutex_;
+    std::atomic<int>* tasksRemaining_; // Added member
 };
 // --- End Helper Runnable ---
 
@@ -90,7 +93,9 @@ signals:
     void filteringFinished(int matchCount); // Signal with the number of matches
 
 private slots:
-    void handleFilterFinished();
+    // void handleFilterFinished(); // REMOVED - No longer connected to QFutureWatcher
+    void sourceModelReset(); // Slot to handle source model reset
+    void handleParallelFilterCompletion(bool wasCancelled); // Slot for parallel completion
 
 private:
     // --- Filtering Implementation ---
@@ -102,15 +107,20 @@ private:
     Logfile* sourceLogfile_ = nullptr; // Pointer to the source logfile data
     QAbstractItemModel* sourceModel_ = nullptr; // Pointer to the source LogfileModel
 
-    QFutureWatcher<QBitArray> filterWatcher_;
+    QFutureWatcher<QBitArray> filterWatcher_; // May become redundant or repurposed
+    QThreadPool threadPool_; // Use a member pool or QThreadPool::globalInstance()
+    QMutex resultMutex_; // Mutex for shared result array
+    std::atomic<int> tasksRemaining_; // Counter for running tasks
+    QBitArray parallelFilterResult_; // Shared result array
+
     bool isFiltering_ = false;
 
     QList<FilterParams> currentFilterChainParams_; // Parameters for the filter currently running or queued
     QList<FilterParams> lastAppliedFilterChainParams_; // Parameters for the filter whose results are currently displayed
 
     QBitArray currentSourceMatches_; // Bitmask representing matches in the *source* model for the *last applied* filter
-    QVector<int> proxyToSourceMap_; // Maps proxy row index -> source row index
-    QHash<int, int> sourceToProxyMap_; // Maps source row index -> proxy row index (for faster mapFromSource)
+    QVector<int> proxyToSourceMap_; // Maps proxy row index -> source row index (Restored)
+    QHash<int, int> sourceToProxyMap_; // Maps source row index -> proxy row index (Restored)
 
 };
 

@@ -51,6 +51,8 @@ private slots:
     void showGrepContextMenu(const QPoint& pos);
     // Slot to handle removing the selected filter
     void removeSelectedGrepFilter();
+    // Slot to handle logfile initialization completion
+    void handleLogfileInitialized(bool success);
 };
 
 #endif // PROJECT_VIEWER_HPP

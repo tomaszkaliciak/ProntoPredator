@@ -152,7 +152,6 @@ void CustomLogView::paintEvent(QPaintEvent *event)
                 if (row >= startIdx.row() && row <= endIdx.row()) {
                     int selectionStartChar = (row == startIdx.row()) ? startOffset : 0;
                     int selectionEndChar = (row == endIdx.row()) ? endOffset : msgStr.length();
-
                     if (selectionEndChar > selectionStartChar) {
                         // Calculate the X coordinates for the selection rectangle
                         qreal startX = line.cursorToX(selectionStartChar);

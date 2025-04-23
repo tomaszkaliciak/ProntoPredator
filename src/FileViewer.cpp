@@ -33,25 +33,25 @@ FileViewer::FileViewer(QWidget* parent, Logfile* logfile)
 {
     logfile_ = logfile;
     layout_ = new QHBoxLayout(this);
+    grep_model_ = nullptr; // Initialize grep_model_ to nullptr
 
-    // --- Create Grep Tree View ---
+    // --- Create Grep Tree View (without model initially) ---
     grep_tree_view_ = new QTreeView();
-    // Create the custom GrepModel
-    grep_model_ = new GrepModel(logfile_->getGrepHierarchy(), this); // Pass root node
-    grep_tree_view_->setModel(grep_model_);
+    // grep_model_ = new GrepModel(logfile_->getGrepHierarchy(), this); // DEFER MODEL CREATION
+    // grep_tree_view_->setModel(grep_model_); // DEFER SETTING MODEL
     grep_tree_view_->setHeaderHidden(true);
-    // grep_tree_model_->setHorizontalHeaderLabels({"Filter"}); // Model provides header data
+    grep_tree_view_->setContextMenuPolicy(Qt::CustomContextMenu); // Enable context menu
 
-    // Remove manual item creation - Model handles the root
+    // Remove manual item creation - Model handles the root (when created)
     // QStandardItem* rootItem = new QStandardItem("Base");
     // rootItem->setEditable(false);
     // rootItem->setData(QVariant::fromValue(static_cast<void*>(logfile_->getGrepHierarchy())), GrepNodeRole);
     // grep_tree_model_->appendRow(rootItem);
 
-    // Connect selection changes
-    connect(grep_tree_view_->selectionModel(), &QItemSelectionModel::selectionChanged,
-            this, &FileViewer::grepTreeSelectionChanged);
-    // Connect context menu request signal
+    // Connect selection changes - MOVED TO handleLogfileInitialized
+    // connect(grep_tree_view_->selectionModel(), &QItemSelectionModel::selectionChanged,
+    //         this, &FileViewer::grepTreeSelectionChanged);
+    // Connect context menu request signal (This one is likely okay here)
     connect(grep_tree_view_, &QTreeView::customContextMenuRequested,
             this, &FileViewer::showGrepContextMenu);
 
@@ -59,7 +59,7 @@ FileViewer::FileViewer(QWidget* parent, Logfile* logfile)
     // --- Create Bookmarks View ---
     bookmarks_widget_ = new QListView();
     bookmarks_widget_->setSizePolicy(QSizePolicy(QSizePolicy::Fixed, QSizePolicy::Expanding));
-    bookmarks_widget_->setModel(logfile_->getBookmarksModel());
+    // bookmarks_widget_->setModel(logfile_->getBookmarksModel()); // DEFER SETTING MODEL
     bookmarks_widget_->setContextMenuPolicy(Qt::CustomContextMenu);
     connect(bookmarks_widget_, &QListView::doubleClicked, this, &FileViewer::bookmarksItemDoubleClicked);
 
@@ -78,13 +78,24 @@ FileViewer::FileViewer(QWidget* parent, Logfile* logfile)
     layout_->addWidget(splitter);
     layout_->setContentsMargins(0, 0, 0, 0);
 
-    // Select the root item initially
-    QModelIndex rootIndex = grep_model_->index(0, 0, QModelIndex());
-    if (rootIndex.isValid()) {
-        grep_tree_view_->selectionModel()->select(rootIndex, QItemSelectionModel::Select | QItemSelectionModel::Rows);
-        // Expand the root item if desired
-        // grep_tree_view_->expand(rootIndex);
+    // --- Connect Logfile Initialization Signal ---
+    // Connect the indexingFinished signal to our new slot
+    connect(logfile_, &Logfile::indexingFinished, this, &FileViewer::handleLogfileInitialized);
+
+    // If the logfile is *already* initialized when the viewer is created
+    // (e.g., loading a project where indexing finished before UI was shown),
+    // call the handler immediately.
+    if (logfile_->isInitialized()) {
+        handleLogfileInitialized(true); // Assume success if already initialized
     }
+
+    // Select the root item initially - MOVED TO handleLogfileInitialized
+    // QModelIndex rootIndex = grep_model_->index(0, 0, QModelIndex());
+    // if (rootIndex.isValid()) {
+    //     grep_tree_view_->selectionModel()->select(rootIndex, QItemSelectionModel::Select | QItemSelectionModel::Rows);
+    //     // Expand the root item if desired
+    //     // grep_tree_view_->expand(rootIndex);
+    // }
 }
 
 FileViewer::~FileViewer()
@@ -164,30 +175,30 @@ void FileViewer::bookmarksItemDoubleClicked(const QModelIndex& idx)
 // Slot to handle selection changes in the grep tree
 void FileViewer::grepTreeSelectionChanged(const QItemSelection& selected, const QItemSelection& /*deselected*/)
 {
-    if (!logViewer_ || selected.indexes().isEmpty()) {
+    // Check if model exists and selection is valid
+    if (!logViewer_ || !grep_model_ || selected.indexes().isEmpty()) {
         return;
     }
 
     QModelIndex selectedIndex = selected.indexes().first();
     // Use the model's helper function to get the node
     GrepNode* selectedNode = grep_model_->getNode(selectedIndex);
-    if (!selectedNode) return;
+    if (!selectedNode) {
+        qWarning() << "grepTreeSelectionChanged: Could not get node for index" << selectedIndex;
+        return;
+    }
+    qDebug() << "grepTreeSelectionChanged: Selected node pattern:" << QString::fromStdString(selectedNode->getPattern());
 
-    QString pattern = QString::fromStdString(selectedNode->getPattern());
-    bool isRegex = selectedNode->isRegEx();
-    Qt::CaseSensitivity cs = selectedNode->isCaseInsensitive() ? Qt::CaseInsensitive : Qt::CaseSensitive;
-    // Build the filter chain from root to selected node
+    // Build the filter chain from selected node up to the root
     QList<GrepNode*> filterChain;
     GrepNode* currentNode = selectedNode;
     while (currentNode != nullptr) {
-        // Don't include the root node itself if it has an empty pattern (represents "Base")
-        if (!currentNode->getParent() && currentNode->getPattern().empty()) {
-             // Skip root node if it's the base/empty filter
-        } else {
-            filterChain.prepend(currentNode); // Add to front to build root-to-leaf order
-        }
+        // Always include the node in the chain.
+        // The filtering logic will skip steps with empty patterns.
+        filterChain.prepend(currentNode); // Add to front to build root-to-leaf order
         currentNode = currentNode->getParent();
     }
+    qDebug() << "grepTreeSelectionChanged: Built filter chain of size:" << filterChain.size();
 
     // Apply the filter chain to the LogViewer's proxy model
     logViewer_->applyFilterChain(filterChain);
@@ -247,4 +258,37 @@ void FileViewer::removeSelectedGrepFilter()
     // if(parentIndex.isValid()) {
     //     grep_tree_view_->selectionModel()->select(parentIndex, QItemSelectionModel::ClearAndSelect | QItemSelectionModel::Rows);
     // }
+}
+
+// Slot to handle logfile initialization completion
+void FileViewer::handleLogfileInitialized(bool success)
+{
+    if (success && !grep_model_) // Only proceed if successful and model doesn't exist yet
+    {
+        qDebug() << "Logfile initialized, creating GrepModel for:" << logfile_->getFileName();
+        // Create the custom GrepModel now that getGrepHierarchy() is valid
+        grep_model_ = new GrepModel(logfile_->getGrepHierarchy(), this); // Pass root node and parent
+        grep_tree_view_->setModel(grep_model_);
+
+        // Connect selection changes *after* setting the model
+        connect(grep_tree_view_->selectionModel(), &QItemSelectionModel::selectionChanged,
+                this, &FileViewer::grepTreeSelectionChanged);
+
+        // Set bookmarks model now that logfile_->getBookmarksModel() is valid
+        bookmarks_widget_->setModel(logfile_->getBookmarksModel());
+
+        // Select the root item now that the model is set
+        QModelIndex rootIndex = grep_model_->index(0, 0, QModelIndex());
+        if (rootIndex.isValid()) {
+            grep_tree_view_->selectionModel()->select(rootIndex, QItemSelectionModel::Select | QItemSelectionModel::Rows);
+            // Optionally expand the root item
+            // grep_tree_view_->expand(rootIndex);
+        } else {
+            qWarning("Could not get root index after setting GrepModel.");
+        }
+    } else if (!success) {
+        qWarning("Logfile initialization failed for %s. Grep tree will not be populated.",
+                 qPrintable(logfile_ ? logfile_->getFileName() : "unknown file"));
+        // Optionally display an error message in the tree view area
+    }
 }

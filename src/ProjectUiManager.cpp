@@ -39,15 +39,30 @@ void ProjectUiManager::load_log_file(QString file_path)
         qWarning("ProjectUiManager::load_log_file: UI or fileView is not initialized.");
         return;
     }
-    Logfile* lf = pm_->add_to_project(std::make_unique<Logfile>(file_path));
-    // Pass the QTabWidget* directly
-    loader::Logfile::load(
+
+    // 1. Create Logfile instance (pass ProjectModel as parent)
+    // Note: Logfile constructor no longer takes filename
+    auto new_logfile_ptr = std::make_unique<Logfile>(pm_.get());
+
+    // 2. Add to project model (get raw pointer back)
+    Logfile* lf = pm_->add_to_project(std::move(new_logfile_ptr));
+    if (!lf) {
+        qWarning("Failed to add logfile to project model.");
+        return; // Or handle error appropriately
+    }
+
+    // 3. Call the loader function (assuming it's adapted for async loading)
+    //    It will connect signals to the Logfile object *before* initialize is called.
+    loader::LogfileLoader::load( // Renamed class
         ui_->fileView, // Pass the QTabWidget*
-        lf,
-        [&](FileViewer* fileviewer)
+        lf,            // Pass the Logfile pointer (not yet initialized)
+        [&](FileViewer* fileviewer) // Connection lambda remains the same
         {
             connect_logviewer_signal(fileviewer);
         });
+
+    // 4. Start asynchronous initialization *after* the loader has connected signals.
+    lf->initialize(file_path);
 }
 
 void ProjectUiManager::on_logfile_wiget_close(Logfile* lf)

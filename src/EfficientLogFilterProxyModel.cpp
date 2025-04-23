@@ -22,8 +22,9 @@
 EfficientLogFilterProxyModel::EfficientLogFilterProxyModel(QObject* parent)
     : QAbstractProxyModel(parent)
 {
-    connect(&filterWatcher_, &QFutureWatcher<QBitArray>::finished,
-            this, &EfficientLogFilterProxyModel::handleFilterFinished);
+    // Connection to filterWatcher_ removed as completion is handled by QTimer/atomic counter
+    // connect(&filterWatcher_, &QFutureWatcher<QBitArray>::finished,
+    //         this, &EfficientLogFilterProxyModel::handleFilterFinished);
 }
 
 
@@ -31,8 +32,10 @@ EfficientLogFilterProxyModel::EfficientLogFilterProxyModel(QObject* parent)
 void FilterChunkTask::run()
 {
     // Check for null pointers passed to constructor (basic safety)
-    if (!rowsToProcessChunk_ || !filename_ || !lineIndex_ || !filterParams_ || !outputBitArray_ || !outputMutex_) {
+    // rowsToProcessChunk_ and lineIndex_ are now value members
+    if (!filename_ || !filterChainParams_ || !outputBitArray_ || !outputMutex_ || !tasksRemaining_) {
         qWarning("FilterChunkTask %d: Invalid pointers provided.", taskId_);
+        if (tasksRemaining_) tasksRemaining_->fetch_sub(1); // Decrement counter if possible
         return;
     }
 
@@ -40,47 +43,84 @@ void FilterChunkTask::run()
     QFile threadLocalFile(*filename_);
     if (!threadLocalFile.open(QIODevice::ReadOnly | QIODevice::Text)) {
         qWarning("FilterChunkTask %d: Failed to open file %s", taskId_, qPrintable(*filename_));
+        tasksRemaining_->fetch_sub(1); // Decrement counter
         return;
     }
 
-    // Process each row index in the assigned chunk
-    for (int sourceRowIndex : *rowsToProcessChunk_) {
+    // Process each row index in the assigned chunk (use the member variable)
+    for (int sourceRowIndex : rowsToProcessChunk_) {
         // --- Cancellation Check (Optional but recommended) ---
-        // Note: QThreadPool doesn't have a direct per-task cancel like QFuture.
-        // Cancellation needs to be managed externally (e.g., via an atomic flag
-        // checked here, or relying on the main thread cancelling the overall operation).
-        // For now, we omit the check here for simplicity, relying on the main QFutureWatcher.
-        // if (isCancelledAtomicFlag.load()) return;
+        // TODO: Implement a proper cancellation mechanism if needed (e.g., shared atomic bool)
+        // if (g_cancelFilteringFlag.load()) { threadLocalFile.close(); tasksRemaining_->fetch_sub(1); return; }
 
-        qint64 start_pos = lineIndex_->at(sourceRowIndex);
-        if (!threadLocalFile.seek(start_pos)) {
-             qWarning("FilterChunkTask %d: Failed to seek to pos %lld for line %d", taskId_, start_pos, sourceRowIndex + 1);
-             continue; // Skip this row on error
-        }
+        // Assume the line matches the full chain until proven otherwise
+        bool lineMatchesChain = true;
 
-        QByteArray lineData = threadLocalFile.readLine();
-        QString lineText = QString::fromUtf8(lineData).trimmed();
+        // Read the line text only if there's an actual filter to apply
+        QString lineText;
+        bool lineRead = false;
 
-        // Apply the filter logic (same as before)
-        bool matchFound = false;
-        if (filterParams_->isRegex) {
-             matchFound = filterParams_->regex.match(lineText).hasMatch();
-        } else {
-             matchFound = lineText.contains(filterParams_->pattern, filterParams_->cs);
-        }
+        // Apply each filter step in the chain sequentially
+        for (const FilterParams& params : *filterChainParams_) { // Dereference pointer to list
+            // If the pattern for this step is empty, skip it
+            if (params.pattern.isEmpty()) continue;
+            // Regex validity already checked before starting tasks
 
-        bool stepResult = (filterParams_->inverted ? !matchFound : matchFound);
+            // Read the line text if we haven't already for this row
+            if (!lineRead) {
+                // Check index bounds (important!) using the value member lineIndex_
+                if (sourceRowIndex < 0 || sourceRowIndex >= lineIndex_.size()) {
+                     qWarning("FilterChunkTask %d: Invalid sourceRowIndex %d", taskId_, sourceRowIndex);
+                     lineMatchesChain = false;
+                     break;
+                }
+                qint64 start_pos = lineIndex_.at(sourceRowIndex); // Use value member
+                if (!threadLocalFile.seek(start_pos)) {
+                    qWarning("FilterChunkTask %d: Failed to seek to pos %lld for line %d", taskId_, start_pos, sourceRowIndex + 1);
+                    lineMatchesChain = false; // Treat as non-match on error
+                    break; // Stop processing this line
+                }
+                QByteArray lineData = threadLocalFile.readLine();
+                lineText = QString::fromUtf8(lineData).trimmed();
+                lineRead = true;
+            }
 
-        // If it's a match, update the shared output QBitArray safely
-        if (stepResult) {
+            // Apply the *current step's* filter logic
+            bool stepMatchFound = false;
+            if (params.isRegex) {
+                 stepMatchFound = params.regex.match(lineText).hasMatch();
+            } else {
+                 stepMatchFound = lineText.contains(params.pattern, params.cs);
+            }
+
+            // Check if the line passes this specific step (considering inversion)
+            bool passesThisStep = (params.inverted ? !stepMatchFound : stepMatchFound);
+
+            if (!passesThisStep) {
+                lineMatchesChain = false; // Line failed one step, it doesn't match the full chain
+                break; // No need to check further filter steps for this line
+            }
+        } // End of filter chain loop for one line
+
+        // If it's a match for the whole chain, update the shared output QBitArray safely
+        if (lineMatchesChain) {
             QMutexLocker locker(outputMutex_); // Lock the mutex before accessing shared data
-            outputBitArray_->setBit(sourceRowIndex, true);
+            // Check bounds again before writing
+            if (sourceRowIndex >= 0 && sourceRowIndex < outputBitArray_->size()) {
+                 outputBitArray_->setBit(sourceRowIndex, true);
+            } else {
+                 qWarning("FilterChunkTask %d: Invalid sourceRowIndex %d for outputBitArray", taskId_, sourceRowIndex);
+            }
             // Mutex is automatically unlocked when locker goes out of scope
         }
-    }
+    } // End of row processing loop
 
     threadLocalFile.close();
     // qDebug("FilterChunkTask %d finished.", taskId_);
+
+    // Decrement the counter. The main thread will check if it reached zero.
+    tasksRemaining_->fetch_sub(1);
+
 }
 // --- End FilterChunkTask Implementation ---
 
@@ -102,8 +142,9 @@ void EfficientLogFilterProxyModel::setSourceModel(QAbstractItemModel* sourceMode
     sourceModel_ = sourceModel;
 
     if (sourceModel_) {
-        // Connect signals if needed, e.g., for source model resets or data changes
-        // connect(sourceModel_, &QAbstractItemModel::modelReset, this, &EfficientLogFilterProxyModel::sourceModelReset);
+        // Connect the crucial modelReset signal
+        connect(sourceModel_, &QAbstractItemModel::modelReset, this, &EfficientLogFilterProxyModel::sourceModelReset);
+        // Other connections remain commented out for now unless needed
         // connect(sourceModel_, &QAbstractItemModel::rowsInserted, this, &EfficientLogFilterProxyModel::sourceRowsInserted);
         // connect(sourceModel_, &QAbstractItemModel::rowsRemoved, this, &EfficientLogFilterProxyModel::sourceRowsRemoved);
         // connect(sourceModel_, &QAbstractItemModel::dataChanged, this, &EfficientLogFilterProxyModel::sourceDataChanged);
@@ -112,26 +153,29 @@ void EfficientLogFilterProxyModel::setSourceModel(QAbstractItemModel* sourceMode
         // Initial population of mapping (assuming no filter initially)
         if (sourceModel_->rowCount() > 0) {
              currentSourceMatches_.resize(sourceModel_->rowCount());
-             currentSourceMatches_.fill(true); // Initially, all rows match (no filter)
-             updateMapping(currentSourceMatches_); // Populate proxyToSourceMap_
-        } else {
-             currentSourceMatches_.clear();
-             proxyToSourceMap_.clear();
-        }
+              currentSourceMatches_.fill(true); // Initially, all rows match (no filter)
+              updateMapping(currentSourceMatches_); // Update view based on initial state
+         } else {
+              currentSourceMatches_.clear();
+              // proxyToSourceMap_.clear(); // REMOVED
+         }
 
-    } else {
-        // Clear mapping if source model is removed
-        currentSourceMatches_.clear();
-        proxyToSourceMap_.clear();
-        sourceToProxyMap_.clear(); // Clear reverse map too
-    }
+     } else {
+         // Clear mapping if source model is removed
+         currentSourceMatches_.clear();
+         // proxyToSourceMap_.clear(); // REMOVED
+         // sourceToProxyMap_.clear(); // REMOVED
+         // Update mapping with empty results
+         updateMapping(currentSourceMatches_);
+     }
 
-    endResetModel(); // Signal completion of the model change
+     endResetModel(); // Signal completion of the model change
 }
 
 
 QModelIndex EfficientLogFilterProxyModel::mapToSource(const QModelIndex& proxyIndex) const
 {
+    // Use the restored map
     if (!sourceModel_ || !proxyIndex.isValid() || proxyIndex.row() >= proxyToSourceMap_.size()) {
         return QModelIndex();
     }
@@ -141,6 +185,7 @@ QModelIndex EfficientLogFilterProxyModel::mapToSource(const QModelIndex& proxyIn
 
 QModelIndex EfficientLogFilterProxyModel::mapFromSource(const QModelIndex& sourceIndex) const
 {
+    // Use the restored map
     if (!sourceModel_ || !sourceIndex.isValid()) {
         return QModelIndex();
     }
@@ -231,12 +276,14 @@ void EfficientLogFilterProxyModel::cancelFiltering()
 // Adapted from LogFilterProxyModel::applyFilterChain
 void EfficientLogFilterProxyModel::applyFilterChain(const QList<GrepNode*>& chain)
 {
+    qDebug() << "EfficientLogFilterProxyModel::applyFilterChain: Received chain of size:" << chain.size();
     if (!sourceModel_ || !sourceLogfile_) {
          qWarning("EfficientLogFilterProxyModel: Cannot apply filter chain, source model or logfile not set.");
          return;
     }
 
     QList<FilterParams> newParamsList;
+    qDebug() << "  Building FilterParams list..."; // Log param building
     for (const GrepNode* node : chain) {
         if (!node) continue;
         FilterParams params;
@@ -252,13 +299,21 @@ void EfficientLogFilterProxyModel::applyFilterChain(const QList<GrepNode*>& chai
             params.regex.setPattern(params.pattern);
             params.regex.setPatternOptions(options);
              if (!params.regex.isValid()) {
-                 qWarning() << "Invalid regex pattern in filter chain:" << params.pattern;
-                 // Optionally: Clear the chain or handle error appropriately
-                 // For now, we let the background task handle invalid regex
+                 // Show user-facing error and stop processing this filter chain
+                 QMessageBox::warning(nullptr, // No easy parent access here
+                                      tr("Invalid Filter"),
+                                      tr("Invalid regular expression pattern:\n'%1'\n\nError: %2")
+                                      .arg(params.pattern)
+                                      .arg(params.regex.errorString()));
+                 qWarning() << "Invalid regex pattern in filter chain:" << params.pattern << "Error:" << params.regex.errorString();
+                 return; // Do not proceed with applying this invalid filter chain
              }
         }
         newParamsList.append(params);
+        // Log details of each param
+        qDebug() << "    Param:" << params.pattern << "Regex:" << params.isRegex << "CS:" << params.cs << "Inv:" << params.inverted;
     }
+    qDebug() << "  FilterParams list built. Size:" << newParamsList.size();
 
     // Check if the new chain is the same as the last applied one
     bool chainsAreEqual = (newParamsList.size() == lastAppliedFilterChainParams_.size());
@@ -278,15 +333,19 @@ void EfficientLogFilterProxyModel::applyFilterChain(const QList<GrepNode*>& chai
         // Store the new chain to be picked up later if needed, or handle differently
         currentFilterChainParams_ = newParamsList; // Store the *intended* filter
         // Maybe queue the request? For now, just update intended and let current finish.
+        // Store the new chain to be picked up later if needed, or handle differently
+        currentFilterChainParams_ = newParamsList; // Store the *intended* filter
+        // Maybe queue the request? For now, just update intended and let current finish.
         return;
     }
 
-    if (chainsAreEqual) {
+    if (chainsAreEqual) { // Re-enable this check
         qDebug() << "Filter chain hasn't changed, skipping redundant filtering.";
         return;
     }
 
     currentFilterChainParams_ = newParamsList;
+    qDebug() << "EfficientLogFilterProxyModel::applyFilterChain: Starting async filtering...";
     startAsyncFiltering();
 }
 
@@ -301,26 +360,120 @@ void EfficientLogFilterProxyModel::startAsyncFiltering()
         qWarning("Cannot filter: source Logfile or sourceModel not set.");
         return;
     }
+    if (sourceModel_->rowCount() == 0) {
+        qDebug() << "Source model is empty, skipping filtering.";
+        // Directly update with empty results
+        updateMapping(QBitArray(0));
+        lastAppliedFilterChainParams_ = currentFilterChainParams_;
+        emit filteringFinished(0);
+        return;
+    }
 
     isFiltering_ = true;
     emit filteringStarted();
 
-    // Prepare data copies for the background task
-    QString filenameCopy = sourceLogfile_->getFileName();
+    // Prepare data for tasks (use pointers/references where safe)
+    const QString* filenamePtr = &sourceLogfile_->getFileName(); // Pointer is fine, Logfile lifetime > task
+    // Store the copy locally first, then take its address
     QVector<qint64> lineIndexCopy = sourceLogfile_->getLineIndexCopy();
-    QList<FilterParams> filterChainParamsCopy = currentFilterChainParams_;
+    const QVector<qint64>* lineIndexPtr = &lineIndexCopy;
+    const QList<FilterParams>* filterChainParamsPtr = &currentFilterChainParams_; // Pointer is fine
 
-    // Run the filtering task in a separate thread
-    auto filterLambda = [=]() -> QBitArray {
-        return EfficientLogFilterProxyModel::performFilteringTask(
-            filenameCopy, lineIndexCopy, filterChainParamsCopy
+    int sourceRowCount = sourceModel_->rowCount();
+    parallelFilterResult_.resize(sourceRowCount); // Resize shared result array
+    parallelFilterResult_.fill(false); // Initialize to false (only set true on match)
+
+    int numThreads = QThread::idealThreadCount();
+    // Clamp threads to a reasonable number, e.g., max 8, min 1
+    numThreads = qBound(1, numThreads, 8);
+    int chunkSize = (sourceRowCount + numThreads - 1) / numThreads; // Ceiling division
+
+    qDebug() << "Starting parallel filtering with" << numThreads << "threads, chunk size" << chunkSize;
+
+    tasksRemaining_.store(numThreads); // Initialize atomic counter
+
+    // Create and start tasks
+    QVector<QVector<int>> rowChunks(numThreads);
+    for (int i = 0; i < sourceRowCount; ++i) {
+        rowChunks[i / chunkSize].append(i); // Distribute source row indices into chunks
+    }
+
+    for (int i = 0; i < numThreads; ++i) {
+        if (rowChunks[i].isEmpty()) {
+             tasksRemaining_.fetch_sub(1); // Decrement counter if a chunk is empty
+             continue;
+        }
+        // Pass vectors by const reference (constructor will copy them)
+        // Pass other data by pointer
+        FilterChunkTask* task = new FilterChunkTask(
+            i,
+            rowChunks[i],       // Pass vector by const reference
+            filenamePtr,
+            lineIndexCopy,      // Pass vector by const reference
+            filterChainParamsPtr,
+            &parallelFilterResult_, // Pointer to shared result array
+            &resultMutex_,         // Pointer to shared mutex
+            &tasksRemaining_       // Pointer to atomic counter
         );
-    };
-    QFuture<QBitArray> future = QtConcurrent::run(filterLambda);
-    filterWatcher_.setFuture(future);
+        QThreadPool::globalInstance()->start(task);
+    }
+
+    // We no longer use QFutureWatcher directly here.
+    // Completion is handled when tasksRemaining_ hits zero.
+    // We need a mechanism to check this counter and call handleFilterFinished.
+    // Using a QTimer is one way, or connecting a signal from the task (more complex).
+
+    // Let's try checking periodically with a QTimer (simplest for now)
+    // This timer should be stopped in handleFilterFinished or cancelFiltering
+    QTimer* checkTimer = new QTimer(this);
+    connect(checkTimer, &QTimer::timeout, this, [this, checkTimer]() {
+        if (tasksRemaining_.load() == 0) {
+            checkTimer->stop();
+            checkTimer->deleteLater();
+            // Check if cancellation was requested *during* the tasks
+            // TODO: Implement proper cancellation check for parallel tasks if needed
+            bool wasCancelled = false; // Placeholder
+            handleParallelFilterCompletion(wasCancelled);
+        }
+    });
+    checkTimer->start(50); // Check every 50ms
 }
 
-// Adapted from LogFilterProxyModel::handleFilterFinished
+// New function to handle completion of parallel tasks
+void EfficientLogFilterProxyModel::handleParallelFilterCompletion(bool wasCancelled)
+{
+     // This function is called when tasksRemaining_ hits 0
+     qDebug() << "All parallel filter tasks finished.";
+
+     int matchCount = 0;
+
+     if (!wasCancelled) {
+         // The result is already in parallelFilterResult_
+         lastAppliedFilterChainParams_ = currentFilterChainParams_; // Store the successfully applied filter
+         matchCount = parallelFilterResult_.count(true);
+         qDebug() << "Parallel filtering finished. Matches found:" << matchCount;
+     } else {
+         qDebug() << "Parallel filtering was cancelled.";
+         // If cancelled, revert to the state before this filter started
+         parallelFilterResult_ = currentSourceMatches_; // Use old matches
+         matchCount = parallelFilterResult_.count(true);
+     }
+
+     isFiltering_ = false; // Mark filtering as done
+
+     // Emit signal *before* potentially blocking map update
+     emit filteringFinished(matchCount);
+
+     // Update the model mapping using the combined result
+     if (!wasCancelled) {
+         updateMapping(parallelFilterResult_);
+     }
+     // If cancelled, mapping remains unchanged (using old currentSourceMatches_)
+}
+
+
+// Adapted from LogFilterProxyModel::handleFilterFinished - REMOVED as redundant
+/*
 void EfficientLogFilterProxyModel::handleFilterFinished()
 {
     bool wasCancelled = filterWatcher_.isCanceled();
@@ -357,83 +510,92 @@ void EfficientLogFilterProxyModel::handleFilterFinished()
     // TODO: Check if currentFilterChainParams_ changed while filtering was running
     // and potentially restart filtering with the latest parameters.
 }
+*/
 
-// --- Static Filtering Task (Single-Threaded - Reverted) ---
+// --- Static Filtering Task ---
 QBitArray EfficientLogFilterProxyModel::performFilteringTask(
     QString filename, QVector<qint64> lineIndex, QList<FilterParams> filterChainParams)
 {
     qint64 lineCount = lineIndex.size();
     if (lineCount == 0) return QBitArray();
 
-    QBitArray currentMatches(lineCount, true); // Start with all lines matching
-    QFile localFile(filename); // Open file once
+    // Start with all lines potentially matching
+    QBitArray finalMatches(lineCount, true); // Assume match until proven otherwise
 
+    QFile localFile(filename);
     if (!localFile.open(QIODevice::ReadOnly | QIODevice::Text)) {
         qWarning("Background task: Failed to open file %s", qPrintable(filename));
-        return QBitArray(lineCount, false); // Return empty matches on error
+        return QBitArray(); // Return empty on error
     }
 
-    // Apply each filter step sequentially
-    for (const FilterParams& params : filterChainParams) {
-        // If the pattern for this step is empty, skip it
-        if (params.pattern.isEmpty()) continue;
+    // Iterate through all lines ONCE
+    for (qint64 i = 0; i < lineCount; ++i) {
+        int rowIndex = static_cast<int>(i);
 
-        // Check regex validity once per step
-        if (params.isRegex && !params.regex.isValid()) {
-            qWarning("Background task: Invalid regex '%s' encountered in chain.", qPrintable(params.pattern));
-            return QBitArray(); // Signal error by returning empty array
+        // --- Cancellation Check ---
+        if (QThread::currentThread()->isInterruptionRequested()) {
+            qDebug() << "Background filtering task interrupted.";
+            localFile.close();
+            return QBitArray(); // Return empty on cancellation
         }
+        // --- End Cancellation Check ---
 
-        QBitArray stepMatches(lineCount, false); // Results for *this* step
+        // Assume the line matches the full chain until proven otherwise
+        bool lineMatchesChain = true;
 
-        // Iterate only through lines that matched the *previous* step
-        for (qint64 i = 0; i < lineCount; ++i) {
-            int rowIndex = static_cast<int>(i);
-            if (!currentMatches.testBit(rowIndex)) {
-                continue; // Skip if didn't pass previous filters
+        // Read the line text only if there's an actual filter to apply
+        QString lineText;
+        bool lineRead = false;
+
+        // Apply each filter step in the chain sequentially
+        for (const FilterParams& params : filterChainParams) {
+            // If the pattern for this step is empty, skip it (it doesn't filter anything out)
+            if (params.pattern.isEmpty()) continue;
+
+            // Check regex validity (already done in applyFilterChain, but safe to re-check)
+            if (params.isRegex && !params.regex.isValid()) {
+                qWarning("Background task: Invalid regex '%s' encountered.", qPrintable(params.pattern));
+                localFile.close();
+                return QBitArray(); // Signal error
             }
 
-            // --- Cancellation Check ---
-            if (QThread::currentThread()->isInterruptionRequested()) {
-                qDebug() << "Background filtering task interrupted.";
-                localFile.close(); // Ensure file is closed
-                return QBitArray(); // Return empty array on cancellation
+            // Read the line text if we haven't already for this row
+            if (!lineRead) {
+                qint64 start_pos = lineIndex.at(i);
+                if (!localFile.seek(start_pos)) {
+                    qWarning("Background task: Failed to seek to pos %lld for line %lld", start_pos, i + 1);
+                    lineMatchesChain = false; // Treat as non-match on error
+                    break; // Stop processing this line
+                }
+                QByteArray lineData = localFile.readLine();
+                lineText = QString::fromUtf8(lineData).trimmed();
+                lineRead = true;
             }
-            // --- End Cancellation Check ---
 
-            qint64 start_pos = lineIndex.at(i);
-            if (!localFile.seek(start_pos)) {
-                 qWarning("Background task: Failed to seek to pos %lld for line %lld", start_pos, i + 1);
-                 continue; // Skip line on seek error
-            }
-            QByteArray lineData = localFile.readLine();
-            QString lineText = QString::fromUtf8(lineData).trimmed();
-
-            // Apply the *current step's* filter
-            bool matchFound = false;
+            // Apply the *current step's* filter logic
+            bool stepMatchFound = false;
             if (params.isRegex) {
-                 matchFound = params.regex.match(lineText).hasMatch();
+                 stepMatchFound = params.regex.match(lineText).hasMatch();
             } else {
-                 matchFound = lineText.contains(params.pattern, params.cs);
+                 stepMatchFound = lineText.contains(params.pattern, params.cs);
             }
 
-            // If the line passes this step (considering inversion), mark it in stepMatches
-            if (params.inverted ? !matchFound : matchFound) {
-                stepMatches.setBit(rowIndex, true);
+            // Check if the line passes this specific step (considering inversion)
+            bool passesThisStep = (params.inverted ? !stepMatchFound : stepMatchFound);
+
+            if (!passesThisStep) {
+                lineMatchesChain = false; // Line failed one step, it doesn't match the full chain
+                break; // No need to check further filter steps for this line
             }
-        }
-        // The results of this step become the input for the next step
-        currentMatches = stepMatches;
+        } // End of filter chain loop for one line
 
-        // Optimization: if no lines match at any step, stop early
-        if (currentMatches.count(true) == 0) {
-            qDebug() << "Filter chain resulted in 0 matches at step:" << params.pattern;
-            break;
-        }
-    } // End of filter chain loop
+        // Update the final result bit for this line based on whether it passed all steps
+        finalMatches.setBit(rowIndex, lineMatchesChain);
 
-    localFile.close(); // Close the file
-    return currentMatches; // Return the final set of matching lines
+    } // End of line iteration loop
+
+    localFile.close();
+    return finalMatches; // Return the final set of matching lines
 } // End of performFilteringTask function
 
 
@@ -469,8 +631,10 @@ void EfficientLogFilterProxyModel::updateMapping(const QBitArray& newMatches)
     proxyToSourceMap_.clear();
     sourceToProxyMap_.clear();
     int currentProxyRow = 0;
-    for (int sourceRow = 0; sourceRow < currentSourceMatches_.size(); ++sourceRow) {
-        if (currentSourceMatches_.testBit(sourceRow)) {
+    // Iterate based on the size of the new results
+    for (int sourceRow = 0; sourceRow < newMatches.size(); ++sourceRow) {
+        // Check the bit in the *new* results array passed to the function
+        if (newMatches.testBit(sourceRow)) {
             proxyToSourceMap_.append(sourceRow);
             sourceToProxyMap_.insert(sourceRow, currentProxyRow++);
         }
@@ -479,4 +643,39 @@ void EfficientLogFilterProxyModel::updateMapping(const QBitArray& newMatches)
     // --- End Reset Model Logic ---
 
     qDebug() << "Mapping update finished. New proxy row count:" << proxyToSourceMap_.size();
+}
+
+// Slot implementation for source model reset
+void EfficientLogFilterProxyModel::sourceModelReset()
+{
+    qDebug() << "Source model reset detected. Re-evaluating filter mapping.";
+    if (!sourceModel_) return;
+
+    // Rebuild the mapping based on the current filter results (currentSourceMatches_)
+    // which should correspond to the last applied filter.
+    // If the source model size changed drastically, currentSourceMatches_ might be invalid.
+    // A safer approach is to assume no filter is active initially after a reset,
+    // or re-trigger the filtering process if a filter *was* active.
+
+    // For simplicity, let's reset to show all rows initially, matching setSourceModel logic.
+    // A more complex approach could re-apply the last filter.
+
+    // Prepare the state (show all rows) and let updateMapping handle the reset signals
+    if (sourceModel_->rowCount() > 0) {
+         currentSourceMatches_.resize(sourceModel_->rowCount());
+         currentSourceMatches_.fill(true); // Assume all rows match initially
+    } else {
+         currentSourceMatches_.clear();
+    }
+    // Call updateMapping to rebuild the map and emit reset signals
+    updateMapping(currentSourceMatches_);
+
+    // Optional: If a filter was previously applied (lastAppliedFilterChainParams_ is not empty),
+    // you might want to automatically re-apply it here by calling applyFilterChain again.
+    // if (!lastAppliedFilterChainParams_.isEmpty()) {
+    //     qDebug() << "Re-applying previous filter after source model reset.";
+    //     // Need to copy params as applyFilterChain might modify them
+    //     QList<FilterParams> paramsToReapply = lastAppliedFilterChainParams_;
+    //     // applyFilterChain(paramsToReapply); // Be careful about triggering loops
+    // }
 }

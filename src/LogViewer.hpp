@@ -11,8 +11,7 @@ class CustomLogView; // Changed from QTableView
 class LogfileModel;
 class QAbstractItemModel;
 class EfficientLogFilterProxyModel; // Changed from LogFilterProxyModel
-class QLabel; // For status overlay
-class QProgressDialog; // Added for progress dialog
+class QLabel; // For status label
 
 class LogViewer : public QWidget
 {
@@ -40,8 +39,8 @@ protected:
     CustomLogView* view_; // Changed type from QTableView
     LogfileModel* baseSourceModel_;
     EfficientLogFilterProxyModel* proxyModel_; // Changed type
-    QLabel* statusOverlay_; // Simple label to show "Filtering..."
-    QProgressDialog* filterProgressDialog_ = nullptr; // Added progress dialog pointer
+    // QLabel* statusOverlay_; // Removed old overlay label
+    QLabel* statusLabel_ = nullptr; // Label to show filtering status
 };
 
 #endif // LOG_VIEWER_HPP

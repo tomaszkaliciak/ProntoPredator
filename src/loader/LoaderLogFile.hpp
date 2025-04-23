@@ -16,15 +16,15 @@ class QTabWidget; // Forward declare QTabWidget
 namespace loader
 {
 
-class Logfile // This class name might be confusing, it's a loader, not the data model
+class LogfileLoader // Renamed from Logfile
 {
 public:
-    Logfile() = delete;
+    LogfileLoader() = delete; // Keep constructor deleted
     // Change signature to accept QTabWidget* instead of Ui::MainWindow*
     static void load(QTabWidget *target_tab_widget, ::Logfile* logfile_data, std::function<void(FileViewer*)> connect_slots_method);
 
 protected:
-    // spawnViews remains protected static
+    // spawnViews remains protected static (though currently commented out)
     static void spawnViews(LogViewer* parent_tab, const GrepNode* node);
 };
 

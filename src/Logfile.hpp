@@ -9,6 +9,8 @@
 #include <QVector>
 #include <QObject>
 #include <QCache> // Added for line caching
+#include <QtConcurrent/QtConcurrent> // Added for background tasks
+#include <QFutureWatcher> // Added to monitor background tasks
 
 #include "BookmarksModel.hpp"
 #include "GrepNode.hpp"
@@ -28,19 +30,23 @@ struct Line
 
 class Logfile : public QObject
 {
-Q_OBJECT
+    Q_OBJECT
 public:
-    // Constructor might need error handling indication (e.g., return bool or throw)
-    Logfile(const QString& filename, QObject* parent = nullptr);
-    ~Logfile(); // Need destructor to close file? QFile handles it if member.
+    // Constructor now takes parent, filename is set via initialize
+    explicit Logfile(QObject* parent = nullptr);
+    ~Logfile(); // Destructor might need to wait for pending operations
+
+    // Asynchronous initialization
+    void initialize(const QString& filename);
+    bool isInitialized() const; // Check if indexing is complete
 
     // Accessors
     const QString& getFileName() const;
-    qint64 getLineCount() const;
+    qint64 getLineCount() const; // Returns current count, might be 0 during indexing
     Line getLine(qint64 line_number) const; // Line numbers typically 1-based
     QVector<qint64> getLineIndexCopy() const; // Added getter for line index
 
-    // Models (assuming they can be adapted)
+    // Models
     BookmarksModel* getBookmarksModel();
     GrepNode* getGrepHierarchy(); // Return raw pointer if ownership stays here
 
@@ -53,13 +59,17 @@ private:
     QFile file_; // Keep the file open
     QVector<qint64> line_index_; // Stores start position of each line
     mutable QCache<qint64, QString> line_cache_; // Added cache (line number -> line text)
+    bool initialized_ = false; // Flag to track completion
+    QFutureWatcher<bool> index_watcher_; // To monitor the background indexing task
 
-    bool initialize(); // Private helper for constructor logic
-    // void buildIndex(); // Original declaration removed
-    bool buildIndex(QProgressDialog& progress); // Added declaration for new version
+    // bool initialize(); // Original private helper removed
+    bool buildIndexInternal(); // Renamed internal blocking index builder
     void connect_events();
 
     friend class serializer::Logfile;
+
+private slots:
+    void handleIndexFinished(); // Slot to react when background indexing is done
 
 protected slots:
     void grep_hierarchy_changed();
@@ -67,6 +77,9 @@ protected slots:
 
 signals:
     void changed();
+    void indexingProgress(int percent); // Signal for progress updates
+    void indexingFinished(bool success); // Signal when indexing is complete (success/failure)
+    void initializedChanged(); // Signal when initialization state changes
 };
 
 #endif // LOGFILE_HPP

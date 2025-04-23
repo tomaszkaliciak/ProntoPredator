@@ -33,8 +33,8 @@ public:
     };
 
 
-    // Optional: Add methods to handle updates if the Logfile changes
-    // void logfileUpdated(); // Example
+    // Public method to trigger a full model reset
+    void resetModel();
 
 private:
     Logfile* logfile_; // Pointer to the actual log file data (non-owning)

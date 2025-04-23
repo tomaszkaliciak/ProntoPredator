@@ -6,8 +6,8 @@
 #include <QMessageBox>
 #include <QAbstractItemModel>
 #include <QWidget> // Added for viewport()->setTextInteractionFlags
-#include <QStackedLayout>
-#include <QProgressDialog> // Added include
+#include <QLabel> // Added include
+// #include <QProgressDialog> // Removed include
 #include <QAction> // For Copy action
 #include <QKeySequence> // For standard shortcuts
 #include <QClipboard> // For clipboard access
@@ -20,7 +20,7 @@
 #include "GrepNode.hpp"
 // #include "TextSelectionDelegate.hpp" // No longer needed here
 
-// Constructor for single view setup with progress dialog
+// Constructor for single view setup with status label
 LogViewer::LogViewer(QWidget* parent, Logfile* logfile)
     : QWidget(parent),
       logfile_(logfile)
@@ -56,14 +56,22 @@ LogViewer::LogViewer(QWidget* parent, Logfile* logfile)
     // - Stylesheet for selection (handled by CustomLogView paintEvent)
     // - Item delegate (CustomLogView handles drawing and selection directly)
 
+    // Create Status Label
+    statusLabel_ = new QLabel(tr("Ready"), this); // Initial text
+    statusLabel_->setAlignment(Qt::AlignCenter);
+    statusLabel_->setVisible(false); // Initially hidden
+    statusLabel_->setStyleSheet("QLabel { background-color: yellow; padding: 2px; }"); // Basic styling
+
     // Set the main layout for the LogViewer widget
     QVBoxLayout* mainLayout = new QVBoxLayout(this); // Keep QVBoxLayout
-    mainLayout->addWidget(view_); // Add view directly
+    mainLayout->addWidget(view_); // Add view
+    mainLayout->addWidget(statusLabel_); // Add status label below view
     mainLayout->setContentsMargins(0, 0, 0, 0);
+    mainLayout->setSpacing(0); // No space between view and label
 
     // Connect signals from proxy model
-    connect(proxyModel_, &EfficientLogFilterProxyModel::filteringStarted, this, &LogViewer::onFilteringStarted); // Changed type
-    connect(proxyModel_, &EfficientLogFilterProxyModel::filteringFinished, this, &LogViewer::onFilteringFinished); // Changed type
+    connect(proxyModel_, &EfficientLogFilterProxyModel::filteringStarted, this, &LogViewer::onFilteringStarted);
+    connect(proxyModel_, &EfficientLogFilterProxyModel::filteringFinished, this, &LogViewer::onFilteringFinished);
 
     // --- Add Copy Action ---
     QAction* copyAction = new QAction(tr("Copy"), this);
@@ -82,7 +90,11 @@ LogViewer::LogViewer(QWidget* parent, Logfile* logfile)
 // Method to apply filtering criteria using a chain of nodes
 void LogViewer::applyFilterChain(const QList<GrepNode*>& chain)
 {
-    if (!proxyModel_) return;
+    qDebug() << "LogViewer::applyFilterChain: Received chain of size:" << chain.size();
+    if (!proxyModel_) {
+        qWarning("LogViewer::applyFilterChain: Proxy model is null!");
+        return;
+    }
 
     // Pass the chain to the proxy model
     proxyModel_->applyFilterChain(chain);
@@ -95,15 +107,10 @@ void LogViewer::onFilteringStarted()
     qDebug() << "LogViewer: Filtering started...";
     view_->setEnabled(false); // Disable view interaction during filtering
 
-    // Create and show progress dialog
-    if (!filterProgressDialog_) { // Create only if it doesn't exist
-        filterProgressDialog_ = new QProgressDialog("Filtering log...", "Cancel", 0, 0, this); // Indeterminate progress
-        filterProgressDialog_->setWindowModality(Qt::WindowModal);
-        filterProgressDialog_->setAutoClose(false); // We will close it manually
-        filterProgressDialog_->setAutoReset(false); // We will reset manually if needed
-        // Connect cancel button to proxy model's cancel slot
-        connect(filterProgressDialog_, &QProgressDialog::canceled, proxyModel_, &EfficientLogFilterProxyModel::cancelFiltering); // Changed type
-        filterProgressDialog_->show();
+    // Show status label instead of dialog
+    if (statusLabel_) {
+        statusLabel_->setText(tr("Filtering..."));
+        statusLabel_->setVisible(true);
     }
 }
 
@@ -112,13 +119,12 @@ void LogViewer::onFilteringFinished(int matchCount)
      qDebug() << "LogViewer: Filtering finished. Matches:" << matchCount;
      view_->setEnabled(true); // Re-enable view interaction
 
-     // Close and delete the progress dialog
-     if (filterProgressDialog_) {
-         filterProgressDialog_->close();
-         filterProgressDialog_->deleteLater();
-         filterProgressDialog_ = nullptr;
+     // Update status label and hide it after a short delay
+     if (statusLabel_) {
+         statusLabel_->setText(tr("Filtering finished. Matches: %1").arg(matchCount));
+         // Optionally hide the label after a delay
+         QTimer::singleShot(2000, statusLabel_, &QLabel::hide); // Hide after 2 seconds
      }
-     // Optionally update status bar or other UI elements here
 }
 
 // --- Slot for Copying ---

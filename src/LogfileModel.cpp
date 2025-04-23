@@ -124,6 +124,13 @@ Qt::ItemFlags LogfileModel::flags(const QModelIndex &index) const
     }
 }
 
+// Public method implementation
+void LogfileModel::resetModel()
+{
+    // Call the protected methods to notify views about a major change
+    beginResetModel();
+    endResetModel();
+}
 
 // Optional: Implement handleDataChange if Logfile can be modified externally
 // void LogfileModel::handleDataChange() {
