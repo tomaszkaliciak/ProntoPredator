@@ -22,9 +22,7 @@
 EfficientLogFilterProxyModel::EfficientLogFilterProxyModel(QObject* parent)
     : QAbstractProxyModel(parent)
 {
-    // Connection to filterWatcher_ removed as completion is handled by QTimer/atomic counter
-    // connect(&filterWatcher_, &QFutureWatcher<QBitArray>::finished,
-    //         this, &EfficientLogFilterProxyModel::handleFilterFinished);
+    // Connection to filterWatcher_ removed (handled by QTimer/atomic counter)
 }
 
 
@@ -333,9 +331,6 @@ void EfficientLogFilterProxyModel::applyFilterChain(const QList<GrepNode*>& chai
         // Store the new chain to be picked up later if needed, or handle differently
         currentFilterChainParams_ = newParamsList; // Store the *intended* filter
         // Maybe queue the request? For now, just update intended and let current finish.
-        // Store the new chain to be picked up later if needed, or handle differently
-        currentFilterChainParams_ = newParamsList; // Store the *intended* filter
-        // Maybe queue the request? For now, just update intended and let current finish.
         return;
     }
 
@@ -472,132 +467,12 @@ void EfficientLogFilterProxyModel::handleParallelFilterCompletion(bool wasCancel
 }
 
 
-// Adapted from LogFilterProxyModel::handleFilterFinished - REMOVED as redundant
+// Adapted from LogFilterProxyModel::handleFilterFinished - REMOVED (handled by handleParallelFilterCompletion)
+
+// --- Static Filtering Task --- (REMOVED - Dead Code)
 /*
-void EfficientLogFilterProxyModel::handleFilterFinished()
-{
-    bool wasCancelled = filterWatcher_.isCanceled();
-    int matchCount = 0;
-    QBitArray newMatches; // Holds the results
-
-    if (!wasCancelled) {
-        newMatches = filterWatcher_.result();
-        if (newMatches.isEmpty() && sourceModel_ && sourceModel_->rowCount() > 0) { // Added sourceModel check
-            // Handle potential cancellation within performFilteringTask returning empty
-             qDebug() << "Filtering task returned empty result, likely cancelled internally.";
-             wasCancelled = true; // Treat as cancelled
-             matchCount = currentSourceMatches_.count(true); // Use old count
-        } else {
-            lastAppliedFilterChainParams_ = currentFilterChainParams_; // Store the successfully applied filter
-            matchCount = newMatches.count(true);
-            qDebug() << "Filtering finished. Matches found:" << matchCount;
-        }
-    } else {
-        qDebug() << "Filtering was cancelled externally.";
-        matchCount = currentSourceMatches_.count(true); // Use count from *before* this filter started
-    }
-
-    isFiltering_ = false; // Mark filtering as done *before* emitting signal/updating map
-
-    // Emit signal *before* potentially blocking map update
-    emit filteringFinished(matchCount);
-
-    // Update the model mapping only if the filter wasn't cancelled
-    if (!wasCancelled) {
-        updateMapping(newMatches); // This is where the magic happens!
-    }
-
-    // TODO: Check if currentFilterChainParams_ changed while filtering was running
-    // and potentially restart filtering with the latest parameters.
-}
+QBitArray EfficientLogFilterProxyModel::performFilteringTask(...) { ... }
 */
-
-// --- Static Filtering Task ---
-QBitArray EfficientLogFilterProxyModel::performFilteringTask(
-    QString filename, QVector<qint64> lineIndex, QList<FilterParams> filterChainParams)
-{
-    qint64 lineCount = lineIndex.size();
-    if (lineCount == 0) return QBitArray();
-
-    // Start with all lines potentially matching
-    QBitArray finalMatches(lineCount, true); // Assume match until proven otherwise
-
-    QFile localFile(filename);
-    if (!localFile.open(QIODevice::ReadOnly | QIODevice::Text)) {
-        qWarning("Background task: Failed to open file %s", qPrintable(filename));
-        return QBitArray(); // Return empty on error
-    }
-
-    // Iterate through all lines ONCE
-    for (qint64 i = 0; i < lineCount; ++i) {
-        int rowIndex = static_cast<int>(i);
-
-        // --- Cancellation Check ---
-        if (QThread::currentThread()->isInterruptionRequested()) {
-            qDebug() << "Background filtering task interrupted.";
-            localFile.close();
-            return QBitArray(); // Return empty on cancellation
-        }
-        // --- End Cancellation Check ---
-
-        // Assume the line matches the full chain until proven otherwise
-        bool lineMatchesChain = true;
-
-        // Read the line text only if there's an actual filter to apply
-        QString lineText;
-        bool lineRead = false;
-
-        // Apply each filter step in the chain sequentially
-        for (const FilterParams& params : filterChainParams) {
-            // If the pattern for this step is empty, skip it (it doesn't filter anything out)
-            if (params.pattern.isEmpty()) continue;
-
-            // Check regex validity (already done in applyFilterChain, but safe to re-check)
-            if (params.isRegex && !params.regex.isValid()) {
-                qWarning("Background task: Invalid regex '%s' encountered.", qPrintable(params.pattern));
-                localFile.close();
-                return QBitArray(); // Signal error
-            }
-
-            // Read the line text if we haven't already for this row
-            if (!lineRead) {
-                qint64 start_pos = lineIndex.at(i);
-                if (!localFile.seek(start_pos)) {
-                    qWarning("Background task: Failed to seek to pos %lld for line %lld", start_pos, i + 1);
-                    lineMatchesChain = false; // Treat as non-match on error
-                    break; // Stop processing this line
-                }
-                QByteArray lineData = localFile.readLine();
-                lineText = QString::fromUtf8(lineData).trimmed();
-                lineRead = true;
-            }
-
-            // Apply the *current step's* filter logic
-            bool stepMatchFound = false;
-            if (params.isRegex) {
-                 stepMatchFound = params.regex.match(lineText).hasMatch();
-            } else {
-                 stepMatchFound = lineText.contains(params.pattern, params.cs);
-            }
-
-            // Check if the line passes this specific step (considering inversion)
-            bool passesThisStep = (params.inverted ? !stepMatchFound : stepMatchFound);
-
-            if (!passesThisStep) {
-                lineMatchesChain = false; // Line failed one step, it doesn't match the full chain
-                break; // No need to check further filter steps for this line
-            }
-        } // End of filter chain loop for one line
-
-        // Update the final result bit for this line based on whether it passed all steps
-        finalMatches.setBit(rowIndex, lineMatchesChain);
-
-    } // End of line iteration loop
-
-    localFile.close();
-    return finalMatches; // Return the final set of matching lines
-} // End of performFilteringTask function
-
 
 // --- The Core Update Logic ---
 void EfficientLogFilterProxyModel::updateMapping(const QBitArray& newMatches)

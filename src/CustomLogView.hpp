@@ -48,6 +48,13 @@ public:
     // Method to scroll to ensure a specific model index is visible
     void ensureIndexVisible(const QModelIndex &index); // Make public
 
+    // Method to get the source model index corresponding to the start of the current selection
+    QModelIndex getSelectedSourceIndex() const;
+
+signals:
+    // Emitted when the range of visible lines changes significantly (e.g., due to scrolling)
+    void visibleRangeChanged(qint64 firstVisible, qint64 lastVisible);
+
 protected:
     void paintEvent(QPaintEvent *event) override;
     void resizeEvent(QResizeEvent *event) override;
@@ -59,6 +66,7 @@ protected:
 private slots:
     void updateScrollBars();
     void onModelReset();
+    void handleScrollChange(); // Declare the slot
     void onRowsInserted(const QModelIndex &parent, int first, int last);
     void onRowsRemoved(const QModelIndex &parent, int first, int last);
     void onDataChanged(const QModelIndex &topLeft, const QModelIndex &bottomRight, const QVector<int> &roles = QVector<int>());
@@ -81,6 +89,10 @@ private:
     TextSelection m_selection;
     QPoint m_dragStartPosition;
     bool m_isSelecting = false;
+
+    // Track last emitted visible range to avoid excessive signals
+    qint64 m_lastFirstVisible = -1;
+    qint64 m_lastLastVisible = -1;
 
 };
 

@@ -20,13 +20,15 @@ int BookmarksModel::rowCount(const QModelIndex &parent) const
 
 QVariant BookmarksModel::data(const QModelIndex &index, int role) const
 {
-    if (role == Qt::DisplayRole)
-       return QString(bookmarks_[index.row()].text_);
+    const Bookmark& bookmark = bookmarks_[index.row()]; // Get reference to avoid copies
 
-    if (role == Qt::DecorationRole)
-    {
+    if (role == Qt::DisplayRole) {
+       return bookmark.getText(); // Use getter
+    }
+
+    if (role == Qt::DecorationRole) {
         constexpr int icon_size = 16;
-        return QPixmap(bookmarks_[index.row()].icon_).scaled(icon_size, icon_size);
+        return QPixmap(bookmark.getIcon()).scaled(icon_size, icon_size); // Use getter
     }
 
     return QVariant();
@@ -45,8 +47,11 @@ void BookmarksModel::add_bookmark(const uint32_t line, const QString& icon, cons
     emit changed();
 }
 
-Bookmark BookmarksModel::get_bookmark(uint32_t index)
+// Returns a const reference. Caller MUST ensure index is valid.
+const Bookmark& BookmarksModel::get_bookmark(uint32_t index) const // Make method const
 {
-    if (static_cast<int>(index) < bookmarks_.size()) return bookmarks_[static_cast<int>(index)];
-    return Bookmark();
+    // Add assertion for debugging, but rely on caller for valid index
+    Q_ASSERT(static_cast<int>(index) < bookmarks_.size());
+    return bookmarks_[static_cast<int>(index)];
+    // Removed the default return path as it's no longer valid
 }

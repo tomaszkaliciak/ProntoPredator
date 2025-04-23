@@ -73,6 +73,9 @@ LogViewer::LogViewer(QWidget* parent, Logfile* logfile)
     connect(proxyModel_, &EfficientLogFilterProxyModel::filteringStarted, this, &LogViewer::onFilteringStarted);
     connect(proxyModel_, &EfficientLogFilterProxyModel::filteringFinished, this, &LogViewer::onFilteringFinished);
 
+    // Connect visible range changes from view to trigger cache population in logfile
+    connect(view_, &CustomLogView::visibleRangeChanged, this, &LogViewer::onVisibleRangeChanged);
+
     // --- Add Copy Action ---
     QAction* copyAction = new QAction(tr("Copy"), this);
     copyAction->setShortcut(QKeySequence::Copy); // Standard Ctrl+C / Cmd+C
@@ -160,4 +163,18 @@ LogfileModel* LogViewer::getBaseSourceModel() const
 CustomLogView* LogViewer::getCustomView() const
 {
     return view_;
+}
+
+// Slot to handle visible range changes from the view
+void LogViewer::onVisibleRangeChanged(qint64 firstVisible, qint64 lastVisible)
+{
+    if (logfile_) {
+        // Calculate center and context size (e.g., cache 3 pages worth)
+        qint64 centerLine = (firstVisible + lastVisible) / 2;
+        int contextLines = (lastVisible - firstVisible + 1) * 3; // Cache ~3 screens worth
+        contextLines = qMax(200, contextLines); // Ensure a minimum cache size
+
+        // Request cache population
+        logfile_->requestCachePopulation(centerLine, contextLines);
+    }
 }

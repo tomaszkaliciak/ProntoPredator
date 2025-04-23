@@ -54,6 +54,7 @@ private:
     void newProject();
     void saveProject();
     void openProject();
+    bool promptSaveChanges(); // Helper to ask user about saving changes
 
     std::unique_ptr<ProjectUiManager> pm_{};
     Ui::MainWindow *ui{nullptr};

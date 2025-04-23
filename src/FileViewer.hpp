@@ -14,6 +14,7 @@ class QTreeView;
 class QItemSelection;
 class GrepNode;
 class GrepModel; // Added
+#include "GrepDialogWindow.hpp" // Include for Result struct
 
 class FileViewer: public QWidget
 {
@@ -31,6 +32,11 @@ public:
     // Method to get the currently selected GrepNode from the tree
     GrepNode* getSelectedGrepNode() const;
 
+    // Public method to handle adding a new grep filter based on dialog results
+    void addGrepFilter(const GrepDialogWindow::Result& result);
+
+    // Public method to handle bookmarking the currently selected line
+    void bookmarkSelectedLine();
 
 signals:
     void destroyed(Logfile* logfile);

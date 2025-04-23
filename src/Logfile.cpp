@@ -7,8 +7,7 @@
 #include <QVector>
 #include <QObject>
 #include <QTextStream> // Keep for potential future use, but not needed for indexing
-// #include <QProgressDialog> // Removed
-// #include <QApplication> // Removed (use signals instead of processEvents)
+// Removed QProgressDialog, QApplication includes
 
 #include "BookmarksModel.hpp"
 #include "GrepNode.hpp"
@@ -101,12 +100,7 @@ bool Logfile::buildIndexInternal()
     int lastPercent = -1; // Track last emitted percentage
 
     while (!file_.atEnd()) {
-        // Optional: Check for cancellation request if needed
-        // if (index_watcher_.isCanceled()) { // Check if cancellation was requested
-        //     qInfo("File indexing cancelled.");
-        //     line_index_.clear(); // Clear partial index
-        //     return false; // Indicate failure due to cancellation
-        // }
+        // Optional: Cancellation check could be added here using index_watcher_.isCanceled()
 
         buffer = file_.read(bufferSize);
         if (buffer.isEmpty() && !file_.atEnd()) {
@@ -223,13 +217,15 @@ Line Logfile::getLine(qint64 line_number) const
     // Cache miss, proceed to read from file
     // IMPORTANT: File I/O (seek, readLine) should ideally happen in a separate
     // thread if this getLine() can be called frequently from the GUI thread
-    // causing stutters. For now, we keep it here but acknowledge this limitation.
-    // The const_cast is still needed as QFile::seek/readLine are not const.
+    // causing stutters. This is the primary performance bottleneck to address later.
+    // The const_cast below is necessary because QFile::seek/readLine are not declared const,
+    // even though we are only reading from the file in this const method.
     qint64 start_pos = line_index_[line_number - 1];
 
     // --- Read-Ahead Caching ---
     const int READ_AHEAD_COUNT = 50; // How many lines to read ahead
     qint64 current_read_pos = start_pos;
+    // const_cast needed because QFile::seek is not const
     if (!const_cast<QFile&>(file_).seek(current_read_pos)) {
          qWarning("Failed to seek to position %lld for line %lld", current_read_pos, line_number);
          return {line_number, QString()}; // Seek failed
@@ -248,6 +244,7 @@ Line Logfile::getLine(qint64 line_number) const
              break;
         }
 
+        // const_cast needed because QFile::readLine is not const
         QByteArray line_data = const_cast<QFile&>(file_).readLine();
         if (line_data.isNull()) { // Check for read error or EOF
              break;
@@ -266,8 +263,7 @@ Line Logfile::getLine(qint64 line_number) const
              line_cache_.insert(current_line_num, new QString(line_text), 1);
         }
 
-        // Update position for next readLine (readLine advances the file pointer)
-        // current_read_pos = const_cast<QFile&>(file_).pos(); // Not needed as readLine advances pos
+        // Note: readLine() advances the file pointer, so manually updating current_read_pos is not needed.
     }
 
     // Ensure the originally requested line was actually read and cached
@@ -315,5 +311,98 @@ void Logfile::bookmarks_model_changed()
 {
     if (initialized_) { // Only emit if ready
         emit changed();
+   }
+}
+
+// Public slot to trigger background cache population
+void Logfile::requestCachePopulation(qint64 centerLine, int contextLines)
+{
+   if (!initialized_ || cache_watcher_.isRunning()) {
+       // Don't start a new task if not initialized or if one is already running
+       return;
+   }
+
+   // Calculate the range to cache (e.g., centerLine +/- contextLines/2)
+   qint64 startLine = qMax(1LL, centerLine - (contextLines / 2));
+   int count = contextLines;
+
+   // Launch the population task in the background
+   // Use a lambda to capture necessary arguments by value/reference safely
+   // Note: 'this' pointer capture is generally safe for member functions if object lifetime is managed.
+   QFuture<void> future = QtConcurrent::run([this, startLine, count]() {
+       this->populateCacheInBackground(startLine, count);
+   });
+
+   // Monitor the future (optional, could be used for cancellation or progress)
+   cache_watcher_.setFuture(future);
+}
+
+
+// Runs in a background thread to populate the line cache
+void Logfile::populateCacheInBackground(qint64 startLine, int count)
+{
+    // Ensure the file is open and initialized (basic checks)
+    // Note: This runs in a background thread, avoid GUI interactions.
+    if (!initialized_ || !file_.isOpen() || count <= 0) {
+        return;
     }
+
+    // Create a thread-local file object to avoid concurrent access issues
+    // with the main thread's file_ object if getLine is called simultaneously.
+    QFile localFile(filename_);
+    if (!localFile.open(QIODevice::ReadOnly | QIODevice::Text)) {
+        qWarning("Cache thread: Failed to open file %s", qPrintable(filename_));
+        return;
+    }
+
+    qint64 endLine = qMin(startLine + count - 1, getLineCount()); // Clamp to actual line count
+    startLine = qMax(1LL, startLine); // Ensure startLine is at least 1
+
+    // Iterate through the requested range
+    for (qint64 currentLineNum = startLine; currentLineNum <= endLine; ++currentLineNum) {
+        // Check if the line is already in the cache (thread-safe check)
+        if (line_cache_.contains(currentLineNum)) {
+            continue; // Skip if already cached
+        }
+
+        // Check for cancellation request (if cache_watcher_ is used for cancellation)
+        // if (cache_watcher_.isCanceled()) {
+        //     qDebug() << "Cache population cancelled.";
+        //     localFile.close();
+        //     return;
+        // }
+
+        // Get the starting position from the index
+        if (currentLineNum - 1 >= line_index_.size()) {
+            qWarning("Cache thread: Line number %lld out of index bounds.", currentLineNum);
+            continue; // Should not happen if endLine is clamped correctly
+        }
+        qint64 start_pos = line_index_[currentLineNum - 1];
+
+        // Seek and read the line using the thread-local file object
+        if (!localFile.seek(start_pos)) {
+            qWarning("Cache thread: Failed to seek to position %lld for line %lld", start_pos, currentLineNum);
+            continue; // Skip this line on seek error
+        }
+
+        QByteArray line_data = localFile.readLine();
+        if (line_data.isNull()) {
+            // Read error or unexpected EOF
+            qWarning("Cache thread: Failed to read line %lld.", currentLineNum);
+            continue; // Skip this line
+        }
+
+        // Convert and trim the line
+        QString line_text = QString::fromUtf8(line_data).trimmed();
+
+        // Insert into cache (thread-safe operation)
+        // Check again before inserting in case another thread cached it between the check and now
+        if (!line_cache_.contains(currentLineNum)) {
+             // QCache takes ownership of the new QString
+             line_cache_.insert(currentLineNum, new QString(line_text), 1);
+        }
+    }
+
+    localFile.close();
+    // qDebug() << "Cache population task finished for lines" << startLine << "to" << endLine;
 }

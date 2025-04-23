@@ -17,6 +17,8 @@ find_package(Qt5 REQUIRED COMPONENTS Core Gui Widgets Concurrent) # Added Concur
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
+
+
 set(SOURCES
     src/Bookmark.cpp
     src/BookmarksModel.cpp

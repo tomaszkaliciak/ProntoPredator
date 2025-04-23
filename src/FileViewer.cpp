@@ -25,6 +25,9 @@
 #include "GrepModel.hpp" // Added include
 #include "CustomLogView.hpp" // Added include for custom view
 #include <QSortFilterProxyModel> // Needed for casting check
+#include "LogfileModel.hpp" // Added for Column enum
+#include <QInputDialog> // Added for bookmark dialog
+#include <QLineEdit> // Added for bookmark dialog
 
 // Removed GrepNodeRole definition as internalPointer is used by GrepModel
 
@@ -72,7 +75,24 @@ FileViewer::FileViewer(QWidget* parent, Logfile* logfile)
     splitter->addWidget(grep_tree_view_);
     splitter->addWidget(bookmarks_widget_);
     splitter->addWidget(logViewer_);
-    splitter->setSizes({150, 150, 1000});
+    splitter->setSizes({150, 150, 1000}); // Initial sizes for grep tree, bookmarks, log view
+
+    // Style the splitter handle
+    splitter->setStyleSheet(R"(
+        QSplitter::handle:horizontal {
+            background-color: qlineargradient(x1:0, y1:0, x2:1, y2:0,
+                                              stop:0 #B5B5B5, stop:1 #A0A0A0);
+            border: 1px solid #777;
+            width: 5px; /* Make handle slightly thicker */
+            margin: 2px 0;
+            border-radius: 2px;
+        }
+        QSplitter::handle:horizontal:hover {
+            background-color: qlineargradient(x1:0, y1:0, x2:1, y2:0,
+                                              stop:0 #D0D0D0, stop:1 #B8B8B8);
+        }
+    )");
+
 
     // Add splitter to layout
     layout_->addWidget(splitter);
@@ -123,6 +143,127 @@ GrepNode* FileViewer::getSelectedGrepNode() const
 }
 
 
+// Public method to handle adding a new grep filter
+void FileViewer::addGrepFilter(const GrepDialogWindow::Result& result)
+{
+    if (!grep_model_) {
+        QMessageBox::warning(this, "Grep Error", "Grep model is not initialized.");
+        return;
+    }
+
+    // Get the currently selected parent node
+    GrepNode* parentNode = getSelectedGrepNode();
+    if (!parentNode) {
+         QMessageBox::warning(this, "Grep Error", "Could not determine parent grep node. Please select a node in the filter tree.");
+         return;
+    }
+
+    // Create the new GrepNode data structure
+    // Ownership will be managed by the parent GrepNode and ultimately the root node/Logfile
+    GrepNode* newNode = new GrepNode(result.pattern.toStdString(),
+                                     result.is_regex,
+                                     result.is_case_insensitive,
+                                     result.is_inverted);
+
+    // Add the new node via the GrepModel
+    grep_model_->addGrepNode(parentNode, newNode);
+
+    // The model will emit signals to update the tree view automatically.
+    // We might want to automatically select the newly added node here.
+    // QModelIndex newIndex = grep_model_->findIndexForNode(newNode);
+    // if (newIndex.isValid()) {
+    //     grep_tree_view_->selectionModel()->select(newIndex, QItemSelectionModel::ClearAndSelect | QItemSelectionModel::Rows);
+    //     grep_tree_view_->scrollTo(newIndex); // Ensure it's visible
+    // }
+}
+
+// Public method to handle bookmarking the currently selected line
+void FileViewer::bookmarkSelectedLine()
+{
+    // Ensure necessary components are available
+    if (!logViewer_ || !logfile_) {
+         QMessageBox::warning(this, "Bookmark Error", "Log viewer or logfile not available.");
+         return;
+    }
+
+    CustomLogView* customView = logViewer_->getCustomView();
+    if (!customView) {
+        QMessageBox::warning(this, "Bookmark Error", "Could not find the custom log view component.");
+        return;
+    }
+
+    // Get the source model index of the selected line
+    QModelIndex sourceIndex = customView->getSelectedSourceIndex();
+
+    if (!sourceIndex.isValid()) {
+         // Check if *any* text is selected, even if index mapping failed somehow
+         if (!customView->getSelectedText().isEmpty()) {
+              QMessageBox::warning(this, "Bookmark Error", "Could not map selected line to source model. Please try selecting again.");
+         } else {
+              QMessageBox::information(this, "Bookmark", "Please select a line in the log view to bookmark.");
+         }
+         return;
+    }
+
+    // Get the original line number (1-based) from the source model data
+    // Assuming the source model is LogfileModel or similar
+    QAbstractItemModel* sourceModel = nullptr;
+    QSortFilterProxyModel* proxyModel = qobject_cast<QSortFilterProxyModel*>(customView->model());
+    if (proxyModel) {
+        sourceModel = proxyModel->sourceModel();
+    } else {
+        sourceModel = customView->model();
+    }
+
+    if (!sourceModel) {
+         QMessageBox::warning(this, "Bookmark Error", "Could not access source model.");
+         return;
+    }
+
+    // Ensure the sourceIndex actually belongs to the expected sourceModel
+    if (sourceIndex.model() != sourceModel) {
+         qWarning("Bookmark Error: Source index model mismatch.");
+         QMessageBox::warning(this, "Bookmark Error", "Internal error: Model mismatch during bookmarking.");
+         return;
+    }
+
+
+    // Use the enum directly now that the header is included
+    qint64 absolute_line_index = sourceModel->data(sourceModel->index(sourceIndex.row(), LogfileModel::Column::LineNumberColumn)).toLongLong(); // Corrected enum usage
+
+    if (absolute_line_index < 1) {
+         QMessageBox::warning(this, "Bookmark Error", "Invalid line number obtained from model.");
+         return;
+    }
+
+    // Get the line text from the Logfile for the dialog default
+    QString current_line_text = logfile_->getLine(absolute_line_index).text;
+
+    // Use QInputDialog to get the bookmark name
+    bool ok = false;
+    // Use 'this' as parent for the dialog
+    QString bookmark_name = QInputDialog::getText(this, tr("Create Bookmark"),
+        tr("Bookmark Name:"), QLineEdit::Normal, current_line_text, &ok); // Corrected include should fix QLineEdit error
+
+    if (!ok || bookmark_name.isEmpty()) {
+        return; // User cancelled or entered empty name
+    }
+
+    // Add the bookmark via the bookmarks model
+    BookmarksModel* bookmarksModel = logfile_->getBookmarksModel();
+    if (!bookmarksModel) {
+         QMessageBox::warning(this, "Bookmark Error", "Could not access bookmarks model.");
+         return;
+    }
+    // Use an icon that exists in icons.qrc
+    bookmarksModel->add_bookmark(static_cast<uint32_t>(absolute_line_index),
+        QString(":/icon/Gnome-Emblem-Important-32.png"), // Using the 'Important' icon
+        bookmark_name);
+
+    // The BookmarksModel should emit signals to update the bookmarks_widget_ view.
+}
+
+
 // Removed helper function findItemForGrepNode
 // QStandardItem* findItemForGrepNode(...) { ... }
 
@@ -135,8 +276,15 @@ void FileViewer::bookmarksItemDoubleClicked(const QModelIndex& idx)
 {
     if (!logfile_ || !logViewer_) return;
 
-    Bookmark bookmark = logfile_->getBookmarksModel()->get_bookmark(static_cast<uint32_t>(idx.row()));
-    qint64 target_line_number = bookmark.line_number_;
+    // Ensure index is valid before getting bookmark
+    if (!idx.isValid() || !logfile_ || !logViewer_ || !logfile_->getBookmarksModel()) return;
+    uint32_t bookmarkIndex = static_cast<uint32_t>(idx.row());
+    if (static_cast<int>(bookmarkIndex) >= logfile_->getBookmarksModel()->rowCount()) return; // Check bounds
+
+    // Use const reference and const getter
+    const Bookmark& bookmark = logfile_->getBookmarksModel()->get_bookmark(bookmarkIndex);
+    // Use getter for line number
+    qint64 target_line_number = bookmark.getLineNumber();
 
     CustomLogView* customView = logViewer_->getCustomView(); // Get the custom view
     QAbstractItemModel* currentViewModel = customView ? customView->model() : nullptr;

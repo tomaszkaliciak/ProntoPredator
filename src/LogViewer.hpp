@@ -33,6 +33,8 @@ private slots:
     void onFilteringFinished(int matchCount);
     // Slot for copying selected text
     void copySelectionToClipboard();
+    // Slot to handle visible range changes from the view
+    void onVisibleRangeChanged(qint64 firstVisible, qint64 lastVisible);
 
 protected:
     Logfile* logfile_;

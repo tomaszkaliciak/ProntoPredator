@@ -61,15 +61,22 @@ private:
     mutable QCache<qint64, QString> line_cache_; // Added cache (line number -> line text)
     bool initialized_ = false; // Flag to track completion
     QFutureWatcher<bool> index_watcher_; // To monitor the background indexing task
+    QFutureWatcher<void> cache_watcher_; // To monitor background cache population tasks
 
     // bool initialize(); // Original private helper removed
     bool buildIndexInternal(); // Renamed internal blocking index builder
     void connect_events();
+    void populateCacheInBackground(qint64 startLine, int count); // Background cache population task
 
     friend class serializer::Logfile;
 
+public slots: // Make this public so LogViewer/CustomLogView can trigger it
+    // Slot to request background population of the cache around a center line
+    void requestCachePopulation(qint64 centerLine, int contextLines);
+
 private slots:
     void handleIndexFinished(); // Slot to react when background indexing is done
+    // Optional: Add a slot to handle cache watcher finished if needed
 
 protected slots:
     void grep_hierarchy_changed();

@@ -100,7 +100,7 @@ private slots:
 private:
     // --- Filtering Implementation ---
     void startAsyncFiltering();
-    static QBitArray performFilteringTask(QString filename, QVector<qint64> lineIndex, QList<FilterParams> filterChainParams);
+    // static QBitArray performFilteringTask(...) // REMOVED - Dead code
     void updateMapping(const QBitArray& newMatches); // The core logic for smart updates
 
     // --- Member Variables ---

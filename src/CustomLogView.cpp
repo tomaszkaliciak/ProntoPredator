@@ -9,8 +9,12 @@
 #include <QFontMetrics>
 #include <QApplication> // For style hints, palette
 
+#include <QTimer> // For delayed scroll handling
+
 CustomLogView::CustomLogView(QWidget *parent)
-    : QAbstractScrollArea(parent)
+    : QAbstractScrollArea(parent),
+      m_lastFirstVisible(-1), // Initialize last visible range trackers
+      m_lastLastVisible(-1)
 {
     // Use a monospaced font for predictable character widths
     m_font = QFontDatabase::systemFont(QFontDatabase::FixedFont);
@@ -34,15 +38,21 @@ CustomLogView::CustomLogView(QWidget *parent)
     setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOn);
     setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOn);
 
-    // Connect scroll bar signals to update viewport
-    connect(verticalScrollBar(), &QScrollBar::valueChanged, this, [this](int value){
-        Q_UNUSED(value);
+    // Connect scroll bar signals to our handler slot
+    // Use singleShot timer to coalesce rapid scroll events
+    connect(verticalScrollBar(), &QScrollBar::valueChanged, this, [this]() {
+        // Trigger update immediately for visual feedback
+        viewport()->update();
+        // Use a single-shot timer to delay the cache request trigger
+        QTimer::singleShot(100, this, &CustomLogView::handleScrollChange); // 100ms delay
+    });
+    connect(horizontalScrollBar(), &QScrollBar::valueChanged, this, [this]() {
+        // Horizontal scroll only needs viewport update
         viewport()->update();
     });
-    connect(horizontalScrollBar(), &QScrollBar::valueChanged, this, [this](int value){
-        Q_UNUSED(value);
-        viewport()->update();
-    });
+    // Also connect sliderReleased to ensure final position is handled
+    connect(verticalScrollBar(), &QScrollBar::sliderReleased, this, &CustomLogView::handleScrollChange);
+
 
     // Set focus policy to allow keyboard interaction later
     setFocusPolicy(Qt::StrongFocus);
@@ -121,7 +131,8 @@ void CustomLogView::paintEvent(QPaintEvent *event)
 
         // --- Draw Line Number ---
         QString lineNumStr = m_model->data(lineIndex, Qt::DisplayRole).toString();
-        painter.setPen(viewport()->palette().color(QPalette::Disabled, QPalette::Text)); // Dim color for line numbers
+        // Use standard text color for better visibility against alternate base
+        painter.setPen(viewport()->palette().color(QPalette::Text));
         painter.fillRect(0, yPos, lineNumAreaWidth - 5, getLineHeight(), viewport()->palette().alternateBase()); // Background for line numbers
         painter.drawText(QRect(0, yPos, lineNumAreaWidth - 5, getLineHeight()), Qt::AlignRight | Qt::AlignVCenter, lineNumStr);
 
@@ -282,10 +293,16 @@ int CustomLogView::getTotalContentHeight() const
 
 int CustomLogView::getTotalContentWidth() const
 {
-    // Needs refinement - find the longest line? For now, estimate.
-    // This is tricky with virtual scrolling without scanning the whole model.
-    // Let's start with a fixed estimate or use viewport width initially.
-    return viewport()->width() * 2; // Placeholder: Assume content can be twice the viewport width
+    // TODO: Needs refinement for accurate horizontal scrolling.
+    // Calculating the true maximum width requires iterating through the entire model,
+    // which is too slow for large files or frequent updates.
+    // Using a fixed estimate or width of visible lines is a compromise.
+    // For now, estimate based on viewport width.
+    int estimatedCharWidth = m_charWidth > 0 ? m_charWidth : 8; // Use calculated or default char width
+    int estimatedChars = 200; // Assume a max line length of 200 chars for estimation
+    int estimatedWidth = getLineNumberAreaWidth() + (estimatedChars * estimatedCharWidth);
+    // Ensure it's at least the viewport width
+    return qMax(estimatedWidth, viewport()->width() + horizontalScrollBar()->value());
 }
 
 QModelIndex CustomLogView::indexAtPosition(const QPoint &position, int *charOffset) const
@@ -453,4 +470,61 @@ QString CustomLogView::getSelectedText() const
     }
 
     return selectedText;
+}
+
+// Private slot to handle scroll changes and emit visibleRangeChanged
+void CustomLogView::handleScrollChange()
+{
+    if (!m_model || m_lineHeight <= 0) return;
+
+    int firstVisible = verticalScrollBar()->value() / m_lineHeight;
+    int viewportLines = viewport()->height() / m_lineHeight;
+    int lastVisible = firstVisible + viewportLines;
+    lastVisible = qMin(lastVisible, m_model->rowCount() - 1); // Clamp to model size
+
+    // Check if the range has changed significantly (e.g., by half a page)
+    // or if it's the first time
+    int threshold = viewportLines / 2;
+    if (m_lastFirstVisible == -1 || qAbs(firstVisible - m_lastFirstVisible) >= threshold)
+    {
+        m_lastFirstVisible = firstVisible;
+        m_lastLastVisible = lastVisible;
+        // Emit the signal with 1-based line numbers for Logfile
+        emit visibleRangeChanged(firstVisible + 1, lastVisible + 1);
+        // qDebug() << "Emitted visibleRangeChanged:" << firstVisible + 1 << "-" << lastVisible + 1;
+    }
+}
+
+
+#include <QSortFilterProxyModel> // Needed for casting check
+
+// Method to get the source model index corresponding to the start of the current selection
+QModelIndex CustomLogView::getSelectedSourceIndex() const
+{
+    if (!m_selection.isValid() || !m_model) {
+        return QModelIndex(); // No valid selection or model
+    }
+
+    // The selection stores the index relative to the *current* model (which might be a proxy)
+    QModelIndex proxyIndex = m_selection.startLineIndex; // Use the start of the selection
+
+    // Try to cast the model to a proxy model to map back to source
+    QSortFilterProxyModel* proxyModel = qobject_cast<QSortFilterProxyModel*>(m_model);
+
+    if (proxyModel) {
+        // Ensure the proxy index is still valid before mapping
+        if (!proxyIndex.isValid() || proxyIndex.model() != proxyModel) {
+             qWarning("getSelectedSourceIndex: Stored proxy index is invalid or belongs to a different model.");
+             return QModelIndex();
+        }
+        return proxyModel->mapToSource(proxyIndex);
+    } else {
+        // If it's not a proxy model, the index is already the source index
+        // Ensure the index is still valid
+         if (!proxyIndex.isValid() || proxyIndex.model() != m_model) {
+             qWarning("getSelectedSourceIndex: Stored source index is invalid or belongs to a different model.");
+             return QModelIndex();
+         }
+        return proxyIndex;
+    }
 }
