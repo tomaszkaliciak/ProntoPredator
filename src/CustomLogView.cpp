@@ -4,12 +4,12 @@
 #include <QPainter>
 #include <QScrollBar>
 #include <QMouseEvent>
+#include <QWheelEvent>
 #include <QDebug>
 #include <QAbstractItemModel>
 #include <QFontMetrics>
-#include <QApplication> // For style hints, palette
-
-#include <QTimer> // For delayed scroll handling
+#include <QApplication>
+#include <QTimer>
 
 CustomLogView::CustomLogView(QWidget *parent)
     : QAbstractScrollArea(parent),
@@ -44,7 +44,7 @@ CustomLogView::CustomLogView(QWidget *parent)
         // Trigger update immediately for visual feedback
         viewport()->update();
         // Use a single-shot timer to delay the cache request trigger
-        QTimer::singleShot(100, this, &CustomLogView::handleScrollChange); // 100ms delay
+        QTimer::singleShot(20, this, &CustomLogView::handleScrollChange); // 20ms delay
     });
     connect(horizontalScrollBar(), &QScrollBar::valueChanged, this, [this]() {
         // Horizontal scroll only needs viewport update
@@ -262,6 +262,27 @@ void CustomLogView::mouseReleaseEvent(QMouseEvent *event)
         event->accept();
     } else {
         QAbstractScrollArea::mouseReleaseEvent(event);
+    }
+}
+
+void CustomLogView::wheelEvent(QWheelEvent *event)
+{
+    if (!m_model || m_lineHeight <= 0) {
+        event->ignore(); // Ignore if no model or line height is invalid
+        return;
+    }
+
+    QScrollBar *vBar = verticalScrollBar();
+    int numDegrees = event->angleDelta().y() / 8;
+    int numSteps = numDegrees / 15; // Standard step calculation
+
+    if (numSteps != 0) {
+        // Scroll by 3 lines per standard step
+        int scrollAmount = numSteps * 3 * m_lineHeight;
+        vBar->setValue(vBar->value() - scrollAmount);
+        event->accept();
+    } else {
+        event->ignore(); // Ignore if no significant scroll delta
     }
 }
 

@@ -6,9 +6,14 @@
    <rect>
     <x>0</x>
     <y>0</y>
-    <width>631</width>
-    <height>494</height>
+    <width>953</width>
+    <height>640</height>
    </rect>
+  </property>
+  <property name="font">
+   <font>
+    <pointsize>20</pointsize>
+   </font>
   </property>
   <property name="windowTitle">
    <string>LogView</string>
@@ -35,7 +40,7 @@
          <bool>true</bool>
         </property>
         <property name="tabShape">
-         <enum>QTabWidget::Rounded</enum>
+         <enum>QTabWidget::TabShape::Rounded</enum>
         </property>
         <property name="currentIndex">
          <number>-1</number>
@@ -51,8 +56,8 @@
     <rect>
      <x>0</x>
      <y>0</y>
-     <width>631</width>
-     <height>20</height>
+     <width>953</width>
+     <height>42</height>
     </rect>
    </property>
    <widget class="QMenu" name="menuTest">
@@ -78,7 +83,7 @@
    </widget>
    <widget class="QMenu" name="menuHelp">
     <property name="layoutDirection">
-     <enum>Qt::LeftToRight</enum>
+     <enum>Qt::LayoutDirection::LeftToRight</enum>
     </property>
     <property name="title">
      <string>Help</string>
@@ -127,7 +132,7 @@
     <string>Ctrl+O</string>
    </property>
    <property name="shortcutContext">
-    <enum>Qt::ApplicationShortcut</enum>
+    <enum>Qt::ShortcutContext::ApplicationShortcut</enum>
    </property>
   </action>
   <action name="exit_app">
