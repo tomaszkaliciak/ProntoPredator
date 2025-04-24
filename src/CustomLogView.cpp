@@ -10,6 +10,7 @@
 #include <QFontMetrics>
 #include <QApplication>
 #include <QTimer>
+#include <QVector> // Added for QVector
 
 CustomLogView::CustomLogView(QWidget *parent)
     : QAbstractScrollArea(parent),
@@ -85,6 +86,13 @@ QAbstractItemModel *CustomLogView::model() const
     return m_model;
 }
 
+// Correct implementation for setHighlightRules
+void CustomLogView::setHighlightRules(const QList<HighlightRule> &rules)
+{
+    m_highlightRules = rules;
+    viewport()->update(); // Trigger repaint to apply new rules
+}
+
 void CustomLogView::setupConnections()
 {
     if (!m_model) return;
@@ -138,9 +146,34 @@ void CustomLogView::paintEvent(QPaintEvent *event)
 
         // --- Draw Message ---
         QString msgStr = m_model->data(msgIndex, Qt::DisplayRole).toString();
-        painter.setPen(viewport()->palette().color(QPalette::Active, QPalette::Text)); // Normal text color
+        // painter.setPen(viewport()->palette().color(QPalette::Active, QPalette::Text)); // Base text color set later or by formats
 
         QTextLayout textLayout(msgStr, m_font);
+
+        // --- Apply Custom Highlighting Rules ---
+        QVector<QTextLayout::FormatRange> formats; // Changed from QList to QVector
+        for (const auto &rule : m_highlightRules) {
+            if (!rule.isEnabled || rule.substring.isEmpty()) continue;
+
+            int pos = 0;
+            // TODO: Add case sensitivity option from rule?
+            Qt::CaseSensitivity cs = Qt::CaseSensitive;
+            while ((pos = msgStr.indexOf(rule.substring, pos, cs)) != -1) {
+                QTextLayout::FormatRange range;
+                range.start = pos;
+                range.length = rule.substring.length();
+                QTextCharFormat format;
+                format.setForeground(rule.color);
+                // format.setBackground(rule.color.lighter(150)); // Example: slightly lighter background
+                range.format = format;
+                formats.append(range);
+                pos += rule.substring.length(); // Move past the found substring
+            }
+        }
+        // TODO: Handle overlapping formats if necessary (e.g., prioritize longer matches or first rule)
+        textLayout.setFormats(formats);
+
+
         textLayout.beginLayout();
         QTextLine line = textLayout.createLine();
         textLayout.endLayout();
@@ -188,9 +221,11 @@ void CustomLogView::paintEvent(QPaintEvent *event)
             }
 
             // --- Draw Text ---
-            // Reset pen color in case selection changed it
-             painter.setPen(viewport()->palette().color(QPalette::Active, QPalette::Text));
+            // Reset pen color in case selection changed it (might not be needed with formats)
+            // painter.setPen(viewport()->palette().color(QPalette::Active, QPalette::Text)); // Base text color is handled by layout/formats
+
             // Draw text considering horizontal scroll offset
+            // Selection background is drawn above, text color within selection might be overridden by formats.
             line.draw(&painter, QPoint(lineNumAreaWidth - horizontalOffset, yPos));
         }
     }

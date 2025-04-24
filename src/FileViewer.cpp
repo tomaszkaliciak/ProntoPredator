@@ -177,6 +177,16 @@ void FileViewer::addGrepFilter(const GrepDialogWindow::Result& result)
     // }
 }
 
+// Public method to update highlighting rules
+void FileViewer::updateHighlightRules(const QList<HighlightRule> &rules)
+{
+    if (logViewer_) {
+        CustomLogView* customView = logViewer_->getCustomView();
+        if (customView) {
+            customView->setHighlightRules(rules);
+        }
+    }
+}
 // Public method to handle bookmarking the currently selected line
 void FileViewer::bookmarkSelectedLine()
 {

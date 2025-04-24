@@ -44,11 +44,13 @@ set(SOURCES
     src/serializer/SerializerLogfile.cpp
     src/serializer/SerializerProjectModel.cpp
     src/EfficientLogFilterProxyModel.cpp # Added new efficient proxy model
+    src/HighlightDialog.cpp # Added for custom highlighting
 )
 
 set(FORMS
     src/ui/GrepDialogWindow.ui
     src/ui/MainWindow.ui
+    src/ui/HighlightDialog.ui # Added for custom highlighting
 )
 
 set(RESOURCES icons.qrc)

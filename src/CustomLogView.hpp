@@ -5,6 +5,8 @@
 #include <QPoint>
 #include <QTextLayout> // For text layout and selection
 #include <QPersistentModelIndex> // Added for QPersistentModelIndex
+#include <QList> // Added for QList
+#include "HighlightRule.hpp" // Added for HighlightRule
 
 // Forward declarations
 class LogfileModel;
@@ -51,6 +53,9 @@ public:
     // Method to get the source model index corresponding to the start of the current selection
     QModelIndex getSelectedSourceIndex() const;
 
+    // Method to set the highlighting rules
+    void setHighlightRules(const QList<HighlightRule> &rules);
+
 signals:
     // Emitted when the range of visible lines changes significantly (e.g., due to scrolling)
     void visibleRangeChanged(qint64 firstVisible, qint64 lastVisible);
@@ -95,6 +100,8 @@ private:
     qint64 m_lastFirstVisible = -1;
     qint64 m_lastLastVisible = -1;
 
+    // Highlighting rules
+    QList<HighlightRule> m_highlightRules;
 };
 
 #endif // CUSTOM_LOG_VIEW_HPP

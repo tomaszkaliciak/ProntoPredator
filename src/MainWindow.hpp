@@ -8,8 +8,10 @@
 #include <QDrag>
 #include <QHBoxLayout>
 #include <QListWidget>
+#include <QList> // Needed for QList
 
 #include "ProjectUiManager.hpp"
+#include "HighlightRule.hpp" // Added for highlight rules
 
 class Logfile;
 class QTextEdit;
@@ -37,6 +39,7 @@ private slots:
     void on_actionSave_project_as_triggered();
     void on_actionSave_project_triggered();
     void on_actionLoad_project_triggered();
+    void on_actionCustomHighlighting_triggered(); // Added slot for custom highlighting
 
 private:
     void project_changed();
@@ -58,6 +61,7 @@ private:
 
     std::unique_ptr<ProjectUiManager> pm_{};
     Ui::MainWindow *ui{nullptr};
+    QList<HighlightRule> m_highlightRules; // Added to store custom highlight rules
 };
 
 #endif // MAINWINDOW_HPP

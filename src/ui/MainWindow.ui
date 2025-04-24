@@ -80,6 +80,8 @@
     </property>
     <addaction name="actionGrep_current_view"/>
     <addaction name="actionBookmark_current_line"/>
+    <addaction name="separator"/>
+    <addaction name="actionCustomHighlighting"/>
    </widget>
    <widget class="QMenu" name="menuHelp">
     <property name="layoutDirection">
@@ -214,6 +216,11 @@
    </property>
    <property name="shortcut">
     <string>Ctrl+S</string>
+   </property>
+  </action>
+  <action name="actionCustomHighlighting">
+   <property name="text">
+    <string>Custom Highlighting...</string>
    </property>
   </action>
  </widget>

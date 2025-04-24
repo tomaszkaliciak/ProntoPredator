@@ -3,6 +3,9 @@
 
 #include <QWidget>
 
+#include <QList> // Added for QList
+#include "HighlightRule.hpp" // Added for HighlightRule
+
 // Forward declarations
 class QHBoxLayout;
 class Logfile;
@@ -37,6 +40,9 @@ public:
 
     // Public method to handle bookmarking the currently selected line
     void bookmarkSelectedLine();
+
+    // Public method to update highlighting rules
+    void updateHighlightRules(const QList<HighlightRule> &rules);
 
 signals:
     void destroyed(Logfile* logfile);

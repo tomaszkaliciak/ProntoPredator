@@ -39,6 +39,7 @@
 #include <QStandardItemModel> // Needed for grep tree model access
 #include <QItemSelectionModel> // Needed for grep tree selection access
 #include "GrepModel.hpp" // Added include
+#include "HighlightDialog.hpp" // Added for custom highlighting dialog
 
 // Define the role used in FileViewer again (or move to a shared header)
 const int GrepNodeRole = Qt::UserRole + 1;
@@ -290,4 +291,27 @@ void MainWindow::openProject()
 {
     pm_->open_project();
 
+}
+void MainWindow::on_actionCustomHighlighting_triggered()
+{
+    HighlightDialog dialog(this);
+
+    // Pass current rules to the dialog
+    dialog.setHighlightRules(m_highlightRules);
+
+    if (dialog.exec() == QDialog::Accepted) {
+        // Get updated rules from the dialog and store them
+        m_highlightRules = dialog.getHighlightRules();
+
+        m_highlightRules = dialog.getHighlightRules();
+
+        // Trigger update in all open FileViewers
+        for (int i = 0; i < ui->fileView->count(); ++i) {
+            FileViewer* viewer = dynamic_cast<FileViewer*>(ui->fileView->widget(i));
+            if (viewer) {
+                viewer->updateHighlightRules(m_highlightRules);
+            }
+        }
+        qDebug() << "Highlight rules updated and applied to open views.";
+    }
 }
